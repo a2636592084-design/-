@@ -33,11 +33,14 @@ def main() -> None:
     p.add_argument("--slippage", type=float, default=0.0005)
     p.add_argument("--ppy", type=int, default=252,
                    help="每年周期数：日线股票252，加密日线可用365")
+    p.add_argument("--atr-stop", type=float, default=None,
+                   help="叠加 ATR 移动止损倍数，如 3.0（默认关闭）")
     args = p.parse_args()
 
     df = get_ohlcv(args.market, args.symbol, args.timeframe, limit=args.limit)
     strat = REGISTRY[args.strategy]()
-    bt = Backtester(args.capital, args.fee, args.slippage, args.ppy)
+    bt = Backtester(args.capital, args.fee, args.slippage, args.ppy,
+                    atr_stop_mult=args.atr_stop)
     result = bt.run(df, strat)
 
     print("=" * 44)

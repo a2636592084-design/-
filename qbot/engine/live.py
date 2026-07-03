@@ -47,6 +47,7 @@ class LiveEngine:
         lookback: int = 300,
         poll_seconds: int = 60,
         demo: bool = True,
+        atr_stop_mult: float | None = None,
     ):
         self.market = market
         self.symbol = symbol
@@ -57,14 +58,25 @@ class LiveEngine:
         self.lookback = lookback
         self.poll_seconds = poll_seconds
         self.demo = demo
+        self.atr_stop_mult = atr_stop_mult
         self.state = EngineState()
+
+    def _target_from_strategy(self, df):
+        """与回测完全一致的目标仓位计算（含可选 ATR 移动止损）。"""
+        pos = self.strategy.generate_positions(df).fillna(0.0)
+        if self.strategy.long_only:
+            pos = pos.clip(lower=0.0)
+        if self.atr_stop_mult:
+            from ..risk.stops import apply_atr_trailing_stop
+            pos = apply_atr_trailing_stop(df, pos, self.atr_stop_mult)
+        return float(pos.iloc[-1]) if len(pos) else 0.0
 
     def tick(self) -> EngineState:
         """执行一个决策周期。返回最新状态。"""
         df = get_ohlcv(self.market, self.symbol, self.timeframe,
                        limit=self.lookback, demo=self.demo)
         price = float(df["close"].iloc[-1])
-        signal = self.strategy.latest_signal(df)
+        raw_target = self._target_from_strategy(df)
 
         # 把最新价喂给模拟盘
         if hasattr(self.broker, "set_price"):
@@ -73,7 +85,7 @@ class LiveEngine:
         account = self.broker.get_account()
         equity = account.equity({self.symbol: price})
 
-        decision = self.risk.evaluate(signal.target_position, equity)
+        decision = self.risk.evaluate(raw_target, equity)
         target_pos = decision.adjusted_position
         if not decision.allow:
             log.warning("风控否决: %s", decision.reason)

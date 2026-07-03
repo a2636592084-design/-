@@ -49,17 +49,24 @@ class Backtester:
         fee_rate: float = 0.0005,     # 单边万5，OKX 现货挂单档位量级
         slippage: float = 0.0005,     # 单边万5 滑点，保守起见
         periods_per_year: int = 252,  # 日线股票=252；加密日线可用365
+        atr_stop_mult: float | None = None,  # 设为数值(如3.0)即开启 ATR 移动止损
     ):
         self.initial_capital = initial_capital
         self.fee_rate = fee_rate
         self.slippage = slippage
         self.periods_per_year = periods_per_year
+        self.atr_stop_mult = atr_stop_mult
 
     def run(self, df: pd.DataFrame, strategy: Strategy) -> BacktestResult:
         df = df.dropna(subset=["close"]).copy()
         target = strategy.generate_positions(df).fillna(0.0)
         if strategy.long_only:
             target = target.clip(lower=0.0)
+
+        # 可选：叠加 ATR 移动止损（吊灯止损），回撤过大时强制离场
+        if self.atr_stop_mult:
+            from ..risk.stops import apply_atr_trailing_stop
+            target = apply_atr_trailing_stop(df, target, self.atr_stop_mult)
 
         # 防未来函数：今天收盘算出的目标仓位，明天才执行
         exec_pos = target.shift(1).fillna(0.0)

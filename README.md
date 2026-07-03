@@ -55,9 +55,12 @@ qbot/
   broker/      下单通道：paper 模拟盘(默认) · okx 实盘/模拟盘
   engine/      24h 实盘引擎(策略→风控→下单)
   web/         FastAPI 可视化面板
-run_backtest.py  回测 CLI
+  risk/stops.py    ATR 移动止损（吊灯止损），回测与实盘共用
+  backtest/optimize.py  参数网格 + 样本外(walk-forward)验证
+run_backtest.py  回测 CLI（--atr-stop 可叠加移动止损）
 run_scan.py      信号扫描器（A股"数据+信号"路线核心）
 run_live.py      实盘/模拟盘引擎
+run_optimize.py  参数优化 + 样本外验证（防过拟合）
 run_dashboard.py 启动面板
 ```
 
@@ -98,6 +101,31 @@ run_dashboard.py 启动面板
 
 自己加指标/策略：在 `indicators.py` 加函数，在 `strategies/` 照葫芦画瓢写个类，
 `__init__.py` 注册一行，回测/扫描/实盘/面板全自动认得。
+
+## 让它更稳的三件武器（比"高年化"重要得多）
+
+> "提高胜率"是新手最大的陷阱——把参数拟合到历史最高胜率，实盘必碎。
+> 下面三样东西不追求好看的数字，只追求**实盘活得久**。
+
+**① ATR 移动止损（吊灯止损）** —— 你说的"ATR 是止损唯一锚点"
+```bash
+python run_backtest.py --market synthetic --strategy supertrend --atr-stop 3.0
+```
+持仓期间止损线 = 最高价 − 3×ATR 且只上移，跌破即离场。回测与实盘用同一套逻辑。
+
+**② ADX 自适应组合 `regime_switch`** —— 趋势市跑趋势、震荡市跑回归，自动切换
+```bash
+python run_backtest.py --market synthetic --strategy regime_switch
+```
+实测：单个趋势策略回撤 -64%~-77%，而组合后**回撤降到 -27%、波动率减半**——
+这就是"多策略错峰工作"平滑资金曲线的威力。
+
+**③ 样本外验证优化器（walk-forward）** —— 调参但防自欺
+```bash
+python run_optimize.py --market synthetic --strategy trend_stack --objective calmar
+```
+只用历史前段调参，在**没见过的后段**打分。优化目标是**卡玛(年化/回撤)不是胜率**。
+若样本外(OOS)远差于样本内(IS)，它会直接警告你"过拟合、别上实盘"。
 
 ## 三个核心用法
 
