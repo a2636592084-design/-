@@ -6,23 +6,31 @@
   <title>qbot 量化面板</title>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
   <style>
-    :root { --bg:#0e1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3;
-            --up:#26a69a; --down:#ef5350; --accent:#58a6ff; --muted:#8b949e; }
+    :root { --bg:#0e1117; --panel:#161b22; --panel2:#1c222b; --line:#30363d; --fg:#e6edf3;
+            --up:#26a69a; --down:#ef5350; --accent:#58a6ff; --gold:#d6a545; --muted:#8b949e; }
     * { box-sizing: border-box; }
     body { margin:0; background:var(--bg); color:var(--fg);
            font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif; }
+    .num { font-variant-numeric: tabular-nums; }
     header { padding:16px 24px; border-bottom:1px solid var(--line);
              display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
     header h1 { font-size:18px; margin:0; }
     header .warn { color:var(--muted); font-size:12px; }
+    nav { display:flex; gap:4px; padding:12px 24px 0; }
+    nav button { background:transparent; color:var(--muted); border:none; cursor:pointer;
+                 padding:9px 18px; font-size:14px; border-bottom:2px solid transparent; }
+    nav button.active { color:var(--fg); border-bottom-color:var(--accent); font-weight:600; }
+    .view { display:none; } .view.active { display:block; }
     .controls { display:flex; gap:10px; align-items:end; flex-wrap:wrap;
                 padding:16px 24px; border-bottom:1px solid var(--line); }
     .field { display:flex; flex-direction:column; gap:4px; }
     .field label { font-size:12px; color:var(--muted); }
-    select, input, button { background:var(--panel); color:var(--fg);
+    select, input, button, textarea { background:var(--panel); color:var(--fg);
              border:1px solid var(--line); border-radius:6px; padding:7px 10px; font-size:13px; }
-    button { background:var(--accent); color:#04101f; font-weight:600; cursor:pointer; border:none; }
-    button:disabled { opacity:.5; cursor:not-allowed; }
+    textarea { font-family:inherit; resize:vertical; min-height:38px; }
+    .go { background:var(--accent); color:#04101f; font-weight:600; cursor:pointer; border:none; }
+    .go:disabled { opacity:.5; cursor:not-allowed; }
+    label.chk { flex-direction:row; align-items:center; gap:6px; color:var(--fg); font-size:13px; }
     .metrics { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
                gap:12px; padding:16px 24px; }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
@@ -32,7 +40,23 @@
     #charts { padding:0 24px 24px; }
     .plot { background:var(--panel); border:1px solid var(--line);
             border-radius:10px; margin-top:16px; }
-    .status { font-size:12px; color:var(--muted); padding:0 24px 16px; }
+    .status { font-size:12px; color:var(--muted); padding:8px 24px 16px; }
+    /* scan table */
+    .scanwrap { padding:8px 24px 32px; overflow-x:auto; }
+    table.scan { width:100%; border-collapse:collapse; font-size:13.5px; min-width:640px; }
+    table.scan th, table.scan td { padding:11px 12px; text-align:right; white-space:nowrap;
+                                   border-bottom:1px solid var(--line); }
+    table.scan th:first-child, table.scan td:first-child { text-align:left; }
+    table.scan th { font-size:11.5px; color:var(--muted); font-weight:600; letter-spacing:.03em; }
+    table.scan td.sym { font-weight:600; }
+    .sig { display:inline-block; padding:3px 11px; border-radius:999px; font-size:12px; font-weight:600; }
+    .sig.buy { background:rgba(38,166,154,.16); color:var(--up); }
+    .sig.flat { background:rgba(139,148,158,.16); color:var(--muted); }
+    .sig.short { background:rgba(239,83,80,.16); color:var(--down); }
+    tr.flip td { background:rgba(214,165,69,.09); }
+    .flipbadge { color:var(--gold); font-size:11px; margin-left:6px; }
+    .bar { display:inline-block; height:6px; border-radius:3px; vertical-align:middle;
+           background:var(--accent); }
   </style>
 </head>
 <body>
@@ -41,69 +65,104 @@
     <span class="warn">默认模拟盘 · 回测含手续费/滑点/防未来函数 · 不承诺任何收益</span>
   </header>
 
-  <div class="controls">
-    <div class="field">
-      <label>市场</label>
-      <select id="market">
-        <option value="synthetic">合成(离线演示)</option>
-        <option value="crypto">加密 OKX</option>
-        <option value="ashare">A股</option>
-      </select>
+  <nav>
+    <button id="tab-bt" class="active" onclick="switchTab('bt')">回测</button>
+    <button id="tab-scan" onclick="switchTab('scan')">实时信号扫描</button>
+  </nav>
+
+  <!-- ============ 回测视图 ============ -->
+  <div id="view-bt" class="view active">
+    <div class="controls">
+      <div class="field"><label>市场</label>
+        <select id="market">
+          <option value="synthetic">合成(离线演示)</option>
+          <option value="crypto">加密 OKX</option>
+          <option value="ashare">A股</option>
+        </select></div>
+      <div class="field"><label>标的</label><input id="symbol" value="DEMO" size="12"></div>
+      <div class="field"><label>周期</label>
+        <select id="timeframe">
+          <option value="1d">日线</option><option value="4h">4小时</option>
+          <option value="1h">1小时</option><option value="15m">15分钟</option>
+        </select></div>
+      <div class="field"><label>策略</label><select id="strategy"></select></div>
+      <div class="field"><label>年周期数</label><input id="ppy" value="252" size="5"></div>
+      <div class="field"><label>ATR止损</label><input id="atrstop" placeholder="关" size="4"></div>
+      <div class="field"><label>&nbsp;</label><button class="go" id="run">运行回测</button></div>
     </div>
-    <div class="field">
-      <label>标的</label>
-      <input id="symbol" value="DEMO" size="12">
-    </div>
-    <div class="field">
-      <label>周期</label>
-      <select id="timeframe">
-        <option value="1d">日线</option>
-        <option value="4h">4小时</option>
-        <option value="1h">1小时</option>
-        <option value="15m">15分钟</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>策略</label>
-      <select id="strategy"></select>
-    </div>
-    <div class="field">
-      <label>年周期数(ppy)</label>
-      <input id="ppy" value="252" size="5">
-    </div>
-    <div class="field">
-      <label>&nbsp;</label>
-      <button id="run">运行回测</button>
+    <div class="status" id="status">选择参数后点"运行回测"。合成市场无需联网即可演示。</div>
+    <div class="metrics" id="metrics"></div>
+    <div id="charts">
+      <div class="plot" id="equityChart" style="height:360px"></div>
+      <div class="plot" id="ddChart" style="height:220px"></div>
+      <div class="plot" id="priceChart" style="height:320px"></div>
     </div>
   </div>
 
-  <div class="status" id="status">选择参数后点"运行回测"。合成市场无需联网即可演示。</div>
-  <div class="metrics" id="metrics"></div>
-  <div id="charts">
-    <div class="plot" id="equityChart" style="height:360px"></div>
-    <div class="plot" id="ddChart" style="height:220px"></div>
-    <div class="plot" id="priceChart" style="height:320px"></div>
+  <!-- ============ 实时扫描视图 ============ -->
+  <div id="view-scan" class="view">
+    <div class="controls">
+      <div class="field"><label>市场</label>
+        <select id="s_market">
+          <option value="crypto">加密 OKX</option>
+          <option value="ashare">A股</option>
+          <option value="synthetic">合成(离线演示)</option>
+        </select></div>
+      <div class="field" style="flex:1;min-width:240px"><label>标的（逗号或换行分隔）</label>
+        <textarea id="s_symbols">BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT</textarea></div>
+      <div class="field"><label>周期</label>
+        <select id="s_timeframe">
+          <option value="1d">日线</option><option value="4h">4小时</option>
+          <option value="1h">1小时</option><option value="15m">15分钟</option>
+        </select></div>
+      <div class="field"><label>策略</label><select id="s_strategy"></select></div>
+      <div class="field"><label>ATR止损</label><input id="s_atrstop" placeholder="关" size="4"></div>
+      <div class="field"><label>&nbsp;</label><button class="go" id="scan">扫描</button></div>
+      <div class="field"><label class="chk"><input type="checkbox" id="s_auto">自动刷新60秒</label></div>
+    </div>
+    <div class="status" id="s_status">
+      填入标的、选策略，点"扫描"。系统对每个标的算出<b>当前该买/该卖/空仓</b>。
+      🟡 高亮行 = 信号刚发生变化，重点关注。此页只给信号，不自动下单。
+    </div>
+    <div class="scanwrap">
+      <table class="scan num" id="scanTable">
+        <thead><tr>
+          <th>标的</th><th>最新价</th><th>日涨跌</th><th>信号</th>
+          <th>ADX</th><th>RSI</th><th>数据</th>
+        </tr></thead>
+        <tbody id="scanBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <script>
     const pct = x => (x*100).toFixed(2) + '%';
     const num = x => (x==null?'-':Number(x).toFixed(2));
+
+    function switchTab(t){
+      document.getElementById('view-bt').classList.toggle('active', t==='bt');
+      document.getElementById('view-scan').classList.toggle('active', t==='scan');
+      document.getElementById('tab-bt').classList.toggle('active', t==='bt');
+      document.getElementById('tab-scan').classList.toggle('active', t==='scan');
+    }
+
+    async function loadStrategies(){
+      const list = await (await fetch('/api/strategies')).json();
+      const opt = list.map(s=>`<option value="${s}">${s}</option>`).join('');
+      strategy.innerHTML = opt;
+      s_strategy.innerHTML = opt;
+      s_strategy.value = list.includes('regime_switch') ? 'regime_switch' : list[0];
+    }
+
+    /* ---------- 回测 ---------- */
     const METRIC_DEFS = [
       ['total_return','总收益',pct],['cagr','年化收益',pct],['max_drawdown','最大回撤',pct],
       ['sharpe','夏普',num],['sortino','索提诺',num],['calmar','卡玛',num],
       ['annual_vol','年化波动',pct],['win_rate','胜率',pct],
       ['profit_factor','盈利因子',num],['num_trades','交易次数',x=>x],
     ];
-
-    async function loadStrategies(){
-      const r = await fetch('/api/strategies'); const list = await r.json();
-      const sel = document.getElementById('strategy');
-      sel.innerHTML = list.map(s=>`<option value="${s}">${s}</option>`).join('');
-    }
-
     function renderMetrics(m){
-      const wrap = document.getElementById('metrics');
-      wrap.innerHTML = METRIC_DEFS.map(([k,label,fmt])=>{
+      metrics.innerHTML = METRIC_DEFS.map(([k,label,fmt])=>{
         const v = m[k];
         const cls = (['total_return','cagr','sharpe','sortino','calmar'].includes(k))
           ? (v>0?'pos':(v<0?'neg':'')) : (k==='max_drawdown'?'neg':'');
@@ -111,50 +170,86 @@
                 <div class="v ${cls}">${v==null?'-':fmt(v)}</div></div>`;
       }).join('');
     }
-
     const layout = extra => Object.assign({
-      paper_bgcolor:'#161b22', plot_bgcolor:'#161b22',
-      font:{color:'#e6edf3'}, margin:{l:55,r:20,t:36,b:36},
-      xaxis:{gridcolor:'#30363d'}, yaxis:{gridcolor:'#30363d'},
+      paper_bgcolor:'#161b22', plot_bgcolor:'#161b22', font:{color:'#e6edf3'},
+      margin:{l:55,r:20,t:36,b:36}, xaxis:{gridcolor:'#30363d'}, yaxis:{gridcolor:'#30363d'},
     }, extra);
-
-    async function run(){
-      const btn = document.getElementById('run'); btn.disabled = true;
-      const q = new URLSearchParams({
-        market:market.value, symbol:symbol.value, timeframe:timeframe.value,
-        strategy:strategy.value, ppy:ppy.value,
-      });
-      document.getElementById('status').textContent = '回测中…';
+    async function runBacktest(){
+      run.disabled = true; status.textContent='回测中…';
+      const p = new URLSearchParams({market:market.value, symbol:symbol.value,
+        timeframe:timeframe.value, strategy:strategy.value, ppy:ppy.value});
+      if(atrstop.value) p.set('atr_stop', atrstop.value);
       try {
-        const r = await fetch('/api/backtest?'+q); const d = await r.json();
+        const d = await (await fetch('/api/backtest?'+p)).json();
         if(d.error){ status.textContent='错误: '+d.error; return; }
         renderMetrics(d.metrics);
-        Plotly.newPlot('equityChart',
-          [{x:d.dates,y:d.equity,type:'scatter',mode:'lines',
-            line:{color:'#58a6ff',width:2},name:'资金曲线'}],
-          layout({title:'资金曲线 (净值)'}), {responsive:true});
-        Plotly.newPlot('ddChart',
-          [{x:d.dates,y:d.drawdown.map(v=>v*100),type:'scatter',fill:'tozeroy',
-            line:{color:'#ef5350'},name:'回撤%'}],
-          layout({title:'回撤 (水下曲线, %)'}), {responsive:true});
+        Plotly.newPlot('equityChart',[{x:d.dates,y:d.equity,type:'scatter',mode:'lines',
+          line:{color:'#58a6ff',width:2},name:'资金曲线'}], layout({title:'资金曲线 (净值)'}),{responsive:true});
+        Plotly.newPlot('ddChart',[{x:d.dates,y:d.drawdown.map(v=>v*100),type:'scatter',
+          fill:'tozeroy',line:{color:'#ef5350'},name:'回撤%'}], layout({title:'回撤 (水下曲线, %)'}),{responsive:true});
         Plotly.newPlot('priceChart',[
           {x:d.dates,y:d.price,type:'scatter',line:{color:'#8b949e'},name:'价格'},
-          {x:d.dates,y:d.position,type:'scatter',yaxis:'y2',
-           line:{color:'#26a69a',shape:'hv'},name:'仓位'}],
-          layout({title:'价格 vs 持仓',
-            yaxis2:{overlaying:'y',side:'right',range:[-1.1,1.1],gridcolor:'transparent'}}),
-          {responsive:true});
+          {x:d.dates,y:d.position,type:'scatter',yaxis:'y2',line:{color:'#26a69a',shape:'hv'},name:'仓位'}],
+          layout({title:'价格 vs 持仓',yaxis2:{overlaying:'y',side:'right',range:[-1.1,1.1],gridcolor:'transparent'}}),{responsive:true});
         status.textContent = `完成 · ${d.dates.length} 根K线 · ${d.dates[0]} ~ ${d.dates[d.dates.length-1]}`;
       } catch(e){ status.textContent='请求失败: '+e; }
-      finally { btn.disabled = false; }
+      finally { run.disabled=false; }
     }
 
-    document.getElementById('run').addEventListener('click', run);
+    /* ---------- 扫描 ---------- */
+    function sigCell(t){
+      if(t>0.5) return '<span class="sig buy">🟢 买入 / 持有</span>';
+      if(t<-0.5) return '<span class="sig short">🔴 做空</span>';
+      return '<span class="sig flat">⚪ 空仓 / 观望</span>';
+    }
+    async function runScan(){
+      scan.disabled = true; s_status.textContent='扫描中…';
+      const syms = s_symbols.value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).join(',');
+      const p = new URLSearchParams({market:s_market.value, symbols:syms,
+        strategy:s_strategy.value, timeframe:s_timeframe.value});
+      if(s_atrstop.value) p.set('atr_stop', s_atrstop.value);
+      try {
+        const rows = await (await fetch('/api/scan?'+p)).json();
+        if(rows.error){ s_status.textContent='错误: '+rows.error; return; }
+        scanBody.innerHTML = rows.map(r=>{
+          if(r.error) return `<tr><td class="sym">${r.symbol}</td>
+            <td colspan="6" style="text-align:left;color:var(--down)">拉取失败: ${r.error}</td></tr>`;
+          const chg = r.change>=0 ? `<span class="pos">+${pct(r.change)}</span>` : `<span class="neg">${pct(r.change)}</span>`;
+          const flip = r.flipped ? '<span class="flipbadge">▲信号变化</span>' : '';
+          const adxCls = r.adx>=25 ? 'pos' : (r.adx<20 ? 'muted' : '');
+          return `<tr class="${r.flipped?'flip':''}">
+            <td class="sym">${r.symbol}${flip}</td>
+            <td>${r.price.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
+            <td>${chg}</td>
+            <td style="text-align:right">${sigCell(r.target)}</td>
+            <td class="${adxCls}">${r.adx.toFixed(1)}</td>
+            <td>${r.rsi.toFixed(1)}</td>
+            <td style="color:var(--muted)">${r.date} · ${r.bars}根</td>
+          </tr>`;
+        }).join('');
+        const flips = rows.filter(r=>r.flipped).length;
+        s_status.textContent = `完成 · ${rows.length} 个标的 · ${flips} 个信号变化 · ${new Date().toLocaleTimeString()}`;
+      } catch(e){ s_status.textContent='请求失败: '+e; }
+      finally { scan.disabled=false; }
+    }
+
+    let autoTimer = null;
+    document.getElementById('s_auto').addEventListener('change', e=>{
+      if(e.target.checked){ runScan(); autoTimer=setInterval(runScan,60000); }
+      else { clearInterval(autoTimer); autoTimer=null; }
+    });
+    document.getElementById('s_market').addEventListener('change', e=>{
+      const m=e.target.value;
+      s_symbols.value = m==='ashare' ? '600519, 000001, 300750, 601318'
+        : m==='synthetic' ? 'DEMO1, DEMO2, DEMO3' : 'BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT';
+    });
     document.getElementById('market').addEventListener('change', e=>{
       const m=e.target.value;
       symbol.value = m==='crypto'?'BTC/USDT':(m==='ashare'?'600519':'DEMO');
       ppy.value = m==='crypto'?'365':'252';
     });
+    document.getElementById('run').addEventListener('click', runBacktest);
+    document.getElementById('scan').addEventListener('click', runScan);
     loadStrategies();
   </script>
 </body>

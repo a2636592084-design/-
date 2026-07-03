@@ -58,6 +58,61 @@ def api_backtest(
     })
 
 
+def _f(x, default=0.0):
+    """nan/inf 安全的 float 转换，避免 JSON 序列化炸掉。"""
+    try:
+        v = float(x)
+        return v if v == v and abs(v) != float("inf") else default
+    except (TypeError, ValueError):
+        return default
+
+
+@app.get("/api/scan")
+def api_scan(
+    market: str = "crypto",
+    symbols: str = "BTC/USDT,ETH/USDT",
+    strategy: str = "regime_switch",
+    timeframe: str = "1d",
+    atr_stop: float | None = None,
+) -> JSONResponse:
+    """对一篮子标的批量算最新信号，供实时盯盘。逐标的拉真实数据，不回退合成。"""
+    if strategy not in REGISTRY:
+        return JSONResponse({"error": f"未知策略 {strategy}"}, status_code=400)
+    from ..risk.stops import apply_atr_trailing_stop
+    from ..strategies.indicators import adx, rsi
+
+    strat = REGISTRY[strategy]()
+    syms = [s.strip() for s in symbols.split(",") if s.strip()]
+    rows = []
+    for sym in syms:
+        try:
+            df = get_ohlcv(market, sym, timeframe, limit=400, fallback_synthetic=False)
+            pos = strat.generate_positions(df).fillna(0.0)
+            if strat.long_only:
+                pos = pos.clip(lower=0.0)
+            if atr_stop:
+                pos = apply_atr_trailing_stop(df, pos, atr_stop)
+            target = _f(pos.iloc[-1])
+            prev = _f(pos.iloc[-2]) if len(pos) > 1 else 0.0
+            a = adx(df)[0]
+            rows.append({
+                "symbol": sym,
+                "price": _f(df["close"].iloc[-1]),
+                "change": _f(df["close"].iloc[-1] / df["close"].iloc[-2] - 1)
+                if len(df) > 1 else 0.0,
+                "target": target,
+                "prev": prev,
+                "flipped": abs(target - prev) > 1e-9,   # 信号刚发生变化 → 重点关注
+                "adx": _f(a.iloc[-1]),
+                "rsi": _f(rsi(df["close"]).iloc[-1], default=50.0),
+                "date": str(df.index[-1].date()),
+                "bars": len(df),
+            })
+        except Exception as e:  # noqa: BLE001
+            rows.append({"symbol": sym, "error": str(e)[:120]})
+    return JSONResponse(rows)
+
+
 @app.get("/api/symbols")
 def api_symbols(market: str = "crypto", quote: str = "USDT") -> JSONResponse:
     try:
