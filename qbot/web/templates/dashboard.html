@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>qbot 量化面板</title>
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <style>
+    :root { --bg:#0e1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3;
+            --up:#26a69a; --down:#ef5350; --accent:#58a6ff; --muted:#8b949e; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg);
+           font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif; }
+    header { padding:16px 24px; border-bottom:1px solid var(--line);
+             display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+    header h1 { font-size:18px; margin:0; }
+    header .warn { color:var(--muted); font-size:12px; }
+    .controls { display:flex; gap:10px; align-items:end; flex-wrap:wrap;
+                padding:16px 24px; border-bottom:1px solid var(--line); }
+    .field { display:flex; flex-direction:column; gap:4px; }
+    .field label { font-size:12px; color:var(--muted); }
+    select, input, button { background:var(--panel); color:var(--fg);
+             border:1px solid var(--line); border-radius:6px; padding:7px 10px; font-size:13px; }
+    button { background:var(--accent); color:#04101f; font-weight:600; cursor:pointer; border:none; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .metrics { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+               gap:12px; padding:16px 24px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+    .card .k { font-size:12px; color:var(--muted); }
+    .card .v { font-size:20px; font-weight:700; margin-top:4px; }
+    .pos { color:var(--up); } .neg { color:var(--down); }
+    #charts { padding:0 24px 24px; }
+    .plot { background:var(--panel); border:1px solid var(--line);
+            border-radius:10px; margin-top:16px; }
+    .status { font-size:12px; color:var(--muted); padding:0 24px 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📈 qbot 量化面板</h1>
+    <span class="warn">默认模拟盘 · 回测含手续费/滑点/防未来函数 · 不承诺任何收益</span>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label>市场</label>
+      <select id="market">
+        <option value="synthetic">合成(离线演示)</option>
+        <option value="crypto">加密 OKX</option>
+        <option value="ashare">A股</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>标的</label>
+      <input id="symbol" value="DEMO" size="12">
+    </div>
+    <div class="field">
+      <label>周期</label>
+      <select id="timeframe">
+        <option value="1d">日线</option>
+        <option value="4h">4小时</option>
+        <option value="1h">1小时</option>
+        <option value="15m">15分钟</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>策略</label>
+      <select id="strategy"></select>
+    </div>
+    <div class="field">
+      <label>年周期数(ppy)</label>
+      <input id="ppy" value="252" size="5">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button id="run">运行回测</button>
+    </div>
+  </div>
+
+  <div class="status" id="status">选择参数后点"运行回测"。合成市场无需联网即可演示。</div>
+  <div class="metrics" id="metrics"></div>
+  <div id="charts">
+    <div class="plot" id="equityChart" style="height:360px"></div>
+    <div class="plot" id="ddChart" style="height:220px"></div>
+    <div class="plot" id="priceChart" style="height:320px"></div>
+  </div>
+
+  <script>
+    const pct = x => (x*100).toFixed(2) + '%';
+    const num = x => (x==null?'-':Number(x).toFixed(2));
+    const METRIC_DEFS = [
+      ['total_return','总收益',pct],['cagr','年化收益',pct],['max_drawdown','最大回撤',pct],
+      ['sharpe','夏普',num],['sortino','索提诺',num],['calmar','卡玛',num],
+      ['annual_vol','年化波动',pct],['win_rate','胜率',pct],
+      ['profit_factor','盈利因子',num],['num_trades','交易次数',x=>x],
+    ];
+
+    async function loadStrategies(){
+      const r = await fetch('/api/strategies'); const list = await r.json();
+      const sel = document.getElementById('strategy');
+      sel.innerHTML = list.map(s=>`<option value="${s}">${s}</option>`).join('');
+    }
+
+    function renderMetrics(m){
+      const wrap = document.getElementById('metrics');
+      wrap.innerHTML = METRIC_DEFS.map(([k,label,fmt])=>{
+        const v = m[k];
+        const cls = (['total_return','cagr','sharpe','sortino','calmar'].includes(k))
+          ? (v>0?'pos':(v<0?'neg':'')) : (k==='max_drawdown'?'neg':'');
+        return `<div class="card"><div class="k">${label}</div>
+                <div class="v ${cls}">${v==null?'-':fmt(v)}</div></div>`;
+      }).join('');
+    }
+
+    const layout = extra => Object.assign({
+      paper_bgcolor:'#161b22', plot_bgcolor:'#161b22',
+      font:{color:'#e6edf3'}, margin:{l:55,r:20,t:36,b:36},
+      xaxis:{gridcolor:'#30363d'}, yaxis:{gridcolor:'#30363d'},
+    }, extra);
+
+    async function run(){
+      const btn = document.getElementById('run'); btn.disabled = true;
+      const q = new URLSearchParams({
+        market:market.value, symbol:symbol.value, timeframe:timeframe.value,
+        strategy:strategy.value, ppy:ppy.value,
+      });
+      document.getElementById('status').textContent = '回测中…';
+      try {
+        const r = await fetch('/api/backtest?'+q); const d = await r.json();
+        if(d.error){ status.textContent='错误: '+d.error; return; }
+        renderMetrics(d.metrics);
+        Plotly.newPlot('equityChart',
+          [{x:d.dates,y:d.equity,type:'scatter',mode:'lines',
+            line:{color:'#58a6ff',width:2},name:'资金曲线'}],
+          layout({title:'资金曲线 (净值)'}), {responsive:true});
+        Plotly.newPlot('ddChart',
+          [{x:d.dates,y:d.drawdown.map(v=>v*100),type:'scatter',fill:'tozeroy',
+            line:{color:'#ef5350'},name:'回撤%'}],
+          layout({title:'回撤 (水下曲线, %)'}), {responsive:true});
+        Plotly.newPlot('priceChart',[
+          {x:d.dates,y:d.price,type:'scatter',line:{color:'#8b949e'},name:'价格'},
+          {x:d.dates,y:d.position,type:'scatter',yaxis:'y2',
+           line:{color:'#26a69a',shape:'hv'},name:'仓位'}],
+          layout({title:'价格 vs 持仓',
+            yaxis2:{overlaying:'y',side:'right',range:[-1.1,1.1],gridcolor:'transparent'}}),
+          {responsive:true});
+        status.textContent = `完成 · ${d.dates.length} 根K线 · ${d.dates[0]} ~ ${d.dates[d.dates.length-1]}`;
+      } catch(e){ status.textContent='请求失败: '+e; }
+      finally { btn.disabled = false; }
+    }
+
+    document.getElementById('run').addEventListener('click', run);
+    document.getElementById('market').addEventListener('change', e=>{
+      const m=e.target.value;
+      symbol.value = m==='crypto'?'BTC/USDT':(m==='ashare'?'600519':'DEMO');
+      ppy.value = m==='crypto'?'365':'252';
+    });
+    loadStrategies();
+  </script>
+</body>
+</html>

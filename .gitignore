@@ -52,3 +52,19 @@ m4/lt~obsolete.m4
 # can automatically generate from config.status script
 # (which is called by configure script))
 Makefile
+
+# ==== Python / qbot ====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 密钥与本地配置，绝不入库
+.env
+config.yaml
+
+# 运行时产物
+logs/
+*.csv
