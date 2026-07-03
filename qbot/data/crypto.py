@@ -5,11 +5,27 @@ ccxt 用一套接口覆盖上百家交易所，OKX 只是其中之一。
 """
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 
 from ..logger import get_logger
 
 log = get_logger("qbot.data.crypto")
+
+
+def _apply_proxy(exchange) -> None:
+    """若运行环境配置了 HTTPS 代理（如受管沙箱），让 ccxt 走代理。
+    普通个人电脑没有这些环境变量，本函数不产生任何影响。"""
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    if proxy:
+        exchange.proxies = {"http": proxy, "https": proxy}
+    ca = os.environ.get("SSL_CERT_FILE") or "/root/.ccr/ca-bundle.crt"
+    if os.path.exists(ca):
+        try:
+            exchange.session.verify = ca
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def fetch_okx_ohlcv(
@@ -24,15 +40,32 @@ def fetch_okx_ohlcv(
         raise RuntimeError("未安装 ccxt，请先 `pip install ccxt`") from e
 
     exchange = ccxt.okx({"enableRateLimit": True})
+    _apply_proxy(exchange)
     if demo:
         # OKX 模拟盘：请求头带 x-simulated-trading
         exchange.headers = {"x-simulated-trading": "1"}
 
-    log.info("从 OKX 拉取 %s %s (limit=%d)", symbol, timeframe, limit)
-    raw = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
+    log.info("从 OKX 拉取 %s %s (目标 %d 根)", symbol, timeframe, limit)
+    # OKX 单次上限约 300 根，超过则向历史分页回溯拼接
+    rows: list = []
+    batch = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=min(limit, 300))
+    rows.extend(batch)
+    guard = 0
+    while len(rows) < limit and batch and guard < 30:
+        guard += 1
+        oldest = rows[0][0]
+        # OKX: after=返回早于该时间戳的记录（向历史回溯）
+        batch = exchange.fetch_ohlcv(symbol, timeframe=timeframe,
+                                     limit=100, params={"after": oldest})
+        batch = [r for r in batch if r[0] < oldest]
+        if not batch:
+            break
+        rows = batch + rows
+
+    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
     df["ts"] = pd.to_datetime(df["ts"], unit="ms")
-    return df.set_index("ts").sort_index()
+    df = df.drop_duplicates(subset="ts").set_index("ts").sort_index()
+    return df.tail(limit)
 
 
 def list_okx_symbols(quote: str = "USDT") -> list[str]:
@@ -40,6 +73,7 @@ def list_okx_symbols(quote: str = "USDT") -> list[str]:
     import ccxt
 
     exchange = ccxt.okx({"enableRateLimit": True})
+    _apply_proxy(exchange)
     markets = exchange.load_markets()
     return sorted(
         s for s, m in markets.items()
