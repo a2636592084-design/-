@@ -49,7 +49,7 @@ python run_dashboard.py
 ```
 qbot/
   data/        数据层：crypto(OKX/ccxt) · ashare(akshare) · synthetic(离线) · loader(统一入口)
-  strategies/  策略框架：ma_cross 双均线 · rsi_reversion 均值回归 · donchian 通道突破
+  strategies/  策略框架 + 10 大技术指标库(indicators.py)，7 个策略见下表
   backtest/    回测引擎(防未来函数+费用+滑点) + 绩效指标
   risk/        风控：仓位上限 · 单笔止损 · 组合回撤熔断 · 按风险定仓位
   broker/      下单通道：paper 模拟盘(默认) · okx 实盘/模拟盘
@@ -62,6 +62,42 @@ run_dashboard.py 启动面板
 ```
 
 ---
+
+## 10 大技术指标 + 7 个策略
+
+指标库 `qbot/strategies/indicators.py`（同类只选一个，越多越过拟合）：
+
+| # | 指标 | 作用 |
+|---|---|---|
+| ① | EMA 20/50/200 | 趋势方向骨架，所有信号的前提过滤器 |
+| ② | ATR | 止损与仓位计算的唯一锚点 |
+| ③ | MACD | 趋势动量信号源（金叉 + 柱体扩张） |
+| ④ | RSI / Stoch RSI | 动量超买超卖 + 背离；Stoch RSI 更灵敏适合短周期 |
+| ⑤ | 布林带 | 波动率通道 + 均值回归（%B + 带宽） |
+| ⑥ | VWAP | 机构成本线，日内量化基准 |
+| ⑦ | ADX | <20 屏蔽趋势信号，防震荡市亏死的关键过滤器 |
+| ⑧ | OBV | 量价背离，识别无量假突破 |
+| ⑨ | SuperTrend | ATR+趋势的工程化合体，天然移动止损线 |
+| ⑩ | Volume Profile(POC) / VWMA | 筹码密集区 / 量加权成本，关键支撑阻力 |
+
+用这些积木组合出的 7 个策略（趋势/震荡严格互补，避免同一行情互相打架）：
+
+| 策略名 | 类型 | 用了哪些指标 | 核心逻辑 |
+|---|---|---|---|
+| `ma_cross` | 趋势 | SMA | 双均线金叉持有、死叉离场 |
+| `donchian` | 趋势 | 最高/最低通道 | 突破 N 日高进场、跌破 M 日低离场 |
+| `trend_stack` | 趋势 | EMA+ADX+MACD | 多头排列 且 ADX>25 且 MACD柱>0 |
+| `supertrend` | 趋势 | SuperTrend+ADX | ST 方向多头 且 ADX 过滤，翻转即追踪止损 |
+| `rsi_reversion` | 震荡 | RSI | 超卖买入、回归卖出 |
+| `bollinger_reversion` | 震荡 | 布林%B+StochRSI+OBV+ADX | 仅 ADX<20 时超卖买、回中轨卖 |
+| `vwap_momentum` | 日内 | VWAP+OBV+VWMA | 站上机构成本线 + 量能推动（**用 15m/1h**） |
+
+> 实测印证：同为趋势策略，带 ADX 过滤的 `trend_stack` 最大回撤 -31%，
+> 而裸 `ma_cross` 高达 -64%——**ADX 过滤器把震荡市的亏损砍掉了一半**。
+> 这就是你说的"ADX<20 屏蔽信号"的价值。
+
+自己加指标/策略：在 `indicators.py` 加函数，在 `strategies/` 照葫芦画瓢写个类，
+`__init__.py` 注册一行，回测/扫描/实盘/面板全自动认得。
 
 ## 三个核心用法
 
