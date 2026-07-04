@@ -195,6 +195,44 @@ def api_analyze(market: str = "crypto", symbol: str = "BTC/USDT",
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
 
+@app.get("/api/signals")
+def api_signals(market: str = "crypto", symbol: str = "BTC/USDT",
+                timeframe: str = "1d", limit: int = 300) -> JSONResponse:
+    """K线图信号标注：共振策略的买卖点 + 阻力/支撑/止损线。"""
+    try:
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=limit)
+        from .analysis import analyze
+        from ..strategies.confluence import ConfluenceStrategy
+        pos = ConfluenceStrategy(allow_short=True).generate_positions(df).fillna(0.0)
+        vals = pos.to_numpy()
+        idx = df.index
+        close = df["close"].to_numpy()
+        markers = []
+        prev = 0.0
+        for i in range(len(vals)):
+            cur = vals[i]
+            if cur == prev:
+                continue
+            ts = int(idx[i].timestamp() * 1000)
+            price = float(close[i])
+            if prev <= 0 and cur > 0:
+                markers.append({"timestamp": ts, "price": price, "type": "buy", "text": "买"})
+            elif prev >= 0 and cur < 0:
+                markers.append({"timestamp": ts, "price": price, "type": "short", "text": "空"})
+            elif prev > 0 and cur <= 0:
+                markers.append({"timestamp": ts, "price": price, "type": "sell", "text": "平多"})
+            elif prev < 0 and cur >= 0:
+                markers.append({"timestamp": ts, "price": price, "type": "cover", "text": "平空"})
+            prev = cur
+        a = analyze(df)
+        return JSONResponse({
+            "markers": markers[-40:],   # 只标最近若干个，避免刷屏
+            "levels": {"resistance": a["resistance"], "support": a["support"], "stop": a["stop"]},
+        })
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+
+
 @app.get("/api/portfolio")
 def api_portfolio(mode: str = "paper") -> JSONResponse:
     """读取组合引擎落盘的状态，供面板三个交易页展示。"""

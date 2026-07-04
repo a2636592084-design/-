@@ -214,6 +214,8 @@
             <button data-ind="VOL" class="on">成交量</button><button data-ind="MACD">MACD</button>
             <button data-ind="RSI">RSI</button><button data-ind="CCI">CCI</button>
           </div>
+          <label class="chk" style="color:var(--fg);font-size:13px">
+            <input type="checkbox" id="t_sig" checked>📍买卖点/阻力支撑</label>
           <span class="t_quote" id="t_quote"></span>
         </div>
         <div id="kline" style="height:520px"></div>
@@ -538,6 +540,7 @@
         b.classList.add('on'); T.sub=b.dataset.ind;
         if(subPaneId) kchart.createIndicator(T.sub, false, {id:subPaneId});
       });
+      document.getElementById('t_sig').addEventListener('change', drawSignals);
       loadKline(); loadAnalysis();
     }
     async function loadKline(){
@@ -549,7 +552,33 @@
         kchart.applyNewData(d.klines);
         const last = d.klines[d.klines.length-1];
         if(last) t_quote.innerHTML = `收 <b>${last.close}</b>`;
+        drawSignals();
       }catch(e){ t_quote.textContent='请求失败'; }
+    }
+    async function drawSignals(){
+      try{ kchart.removeOverlay(); }catch(e){}       // 清掉旧标注
+      if(!document.getElementById('t_sig').checked) return;
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
+      let d;
+      try{ d = await (await fetch('/api/signals?'+p)).json(); }catch(e){ return; }
+      if(!d || d.error) return;
+      const C = {buy:'#26a69a', short:'#ef5350', sell:'#8b949e', cover:'#8b949e'};
+      (d.markers||[]).forEach(m=>{
+        try{ kchart.createOverlay({
+          name:'simpleAnnotation', extendData:m.text,
+          points:[{timestamp:m.timestamp, value:m.price}],
+          styles:{ text:{ color:'#fff', backgroundColor:C[m.type]||'#8b949e',
+                   borderColor:C[m.type]||'#8b949e', size:11, paddingLeft:4,
+                   paddingRight:4, paddingTop:2, paddingBottom:2, borderRadius:3 } }
+        }); }catch(e){}
+      });
+      const L = d.levels||{};
+      const line = (val,color,label)=>{ if(val==null) return;
+        try{ kchart.createOverlay({ name:'priceLine', extendData:label,
+          points:[{value:val}],
+          styles:{ line:{ color:color, style:'dashed', size:1 } } }); }catch(e){}; };
+      line(L.resistance,'#ef5350','阻力'); line(L.support,'#26a69a','支撑');
+      line(L.stop,'#d6a545','止损');
     }
     function gaugeColor(v){ return v>=60?'var(--up)':v<=40?'var(--down)':'var(--gold)'; }
     async function loadAnalysis(){
