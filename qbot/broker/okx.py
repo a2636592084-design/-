@@ -29,6 +29,9 @@ class OKXBroker(Broker):
         # 复用行情层已验证的代理/CA 配置。
         from ..data.crypto import _apply_proxy
         _apply_proxy(self.exchange)
+        # OKX 模拟盘不支持 asset/currencies 接口（会报 50038）。关闭 fetchCurrencies，
+        # 让 load_markets 跳过它——查账户/下单本身在模拟盘完全可用。
+        self.exchange.has["fetchCurrencies"] = False
         if demo:
             self.exchange.headers = {"x-simulated-trading": "1"}
             log.warning("OKX 处于【模拟盘】模式（demo=True），不会动用真钱。")
