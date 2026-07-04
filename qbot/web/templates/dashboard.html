@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>qbot 量化面板</title>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <script src="/static/klinecharts.min.js"></script>
   <style>
     :root { --bg:#0e1117; --panel:#161b22; --panel2:#1c222b; --line:#30363d; --fg:#e6edf3;
             --up:#26a69a; --down:#ef5350; --accent:#58a6ff; --gold:#d6a545; --muted:#8b949e; }
@@ -63,6 +64,58 @@
     .pf-empty .term { background:#0a1413; color:#cfe4e0; border-radius:8px; padding:12px 14px;
             margin:12px 0; font-family:ui-monospace,Consolas,monospace; font-size:13px; overflow-x:auto; }
     .pf-empty .hint { font-size:12px; color:var(--muted); }
+    /* 行情终端 */
+    .term-wrap { display:flex; gap:12px; padding:12px 16px; align-items:stretch; }
+    .term-left { flex:1; min-width:0; }
+    .term-right { width:340px; flex:0 0 340px; }
+    .term-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+    .symbtn { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+      color:var(--fg); padding:7px 12px; cursor:pointer; font-size:15px; font-weight:700; }
+    .symbtn .t_code { color:var(--muted); font-weight:500; font-size:12px; margin:0 6px; }
+    .tf-group { display:flex; gap:2px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:2px; }
+    .tf-group button { background:transparent; border:none; color:var(--muted); padding:5px 10px;
+      font-size:12.5px; cursor:pointer; border-radius:6px; }
+    .tf-group button.on { background:var(--accent); color:#04101f; font-weight:600; }
+    .t_quote { color:var(--muted); font-size:12px; }
+    #kline { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+    /* 右侧分析 */
+    .an-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+    .an-card h4 { margin:0 0 10px; font-size:13px; color:var(--muted); letter-spacing:.05em; }
+    .gauge { text-align:center; }
+    .gauge .num { font-size:40px; font-weight:800; line-height:1; }
+    .gauge .lbl { font-size:13px; margin-top:4px; }
+    .lvls { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .lvl { background:var(--panel2); border-radius:8px; padding:8px 10px; }
+    .lvl .k { font-size:11px; color:var(--muted); } .lvl .v { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+    .dim { margin:9px 0; }
+    .dim .top { display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px; }
+    .dim .track { height:7px; background:var(--panel2); border-radius:4px; overflow:hidden; }
+    .dim .fill { height:100%; border-radius:4px; }
+    .votes { display:flex; flex-wrap:wrap; gap:6px; }
+    .vote { font-size:11px; padding:3px 8px; border-radius:999px; background:var(--panel2); }
+    .vote.up { color:var(--up); } .vote.dn { color:var(--down); } .vote.mid { color:var(--muted); }
+    .an-text { font-size:13px; color:var(--fg); line-height:1.7; }
+    .an-src { font-size:11px; color:var(--muted); margin-top:8px; }
+    /* 搜索弹窗 */
+    .modal-mask { display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50;
+      align-items:flex-start; justify-content:center; }
+    .modal-mask.on { display:flex; }
+    .modal { background:var(--bg); border:1px solid var(--line); border-radius:12px; width:640px;
+      max-width:94vw; margin-top:8vh; padding:16px; }
+    .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .mkt-tabs { display:flex; gap:6px; align-items:center; }
+    .mkt-tabs button { background:transparent; border:none; color:var(--muted); cursor:pointer;
+      padding:6px 12px; border-radius:8px; font-size:13px; }
+    .mkt-tabs button.on { background:var(--accent); color:#04101f; font-weight:600; }
+    .mkt-tabs .soon { color:var(--muted); font-size:11px; margin-left:6px; }
+    .esc { background:var(--panel); border:1px solid var(--line); color:var(--muted); border-radius:6px; padding:4px 10px; cursor:pointer; }
+    #searchInput { width:100%; background:var(--panel); border:1px solid var(--accent); border-radius:10px;
+      color:var(--fg); padding:12px 14px; font-size:15px; }
+    .results { max-height:52vh; overflow-y:auto; margin-top:10px; }
+    .results .row { display:flex; justify-content:space-between; padding:11px 12px; border-radius:8px; cursor:pointer; }
+    .results .row:hover { background:var(--panel); }
+    .results .row .nm { font-weight:600; } .results .row .cd { color:var(--muted); }
+    .results-foot { color:var(--muted); font-size:12px; padding:8px 4px 0; border-top:1px solid var(--line); margin-top:6px; }
   </style>
 </head>
 <body>
@@ -72,6 +125,7 @@
   </header>
 
   <nav>
+    <button id="tab-terminal" onclick="switchTab('terminal')">行情终端</button>
     <button id="tab-bt" class="active" onclick="switchTab('bt')">回测</button>
     <button id="tab-scan" onclick="switchTab('scan')">实时信号扫描</button>
     <button id="tab-paper" onclick="switchTab('paper')">模拟量化交易</button>
@@ -142,6 +196,48 @@
         </tr></thead>
         <tbody id="scanBody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- ============ 行情终端 ============ -->
+  <div id="view-terminal" class="view">
+    <div class="term-wrap">
+      <div class="term-left">
+        <div class="term-bar">
+          <button class="symbtn" onclick="openSearch()"><span id="t_symname">比特币</span>
+            <span class="t_code" id="t_symcode">BTC/USDT</span> 🔍</button>
+          <div class="tf-group" id="tf_group">
+            <button data-tf="15m">15分</button><button data-tf="1h">1时</button>
+            <button data-tf="1d" class="on">日线</button><button data-tf="1w">周线</button>
+          </div>
+          <div class="tf-group" id="sub_group">
+            <button data-ind="VOL" class="on">成交量</button><button data-ind="MACD">MACD</button>
+            <button data-ind="RSI">RSI</button><button data-ind="CCI">CCI</button>
+          </div>
+          <span class="t_quote" id="t_quote"></span>
+        </div>
+        <div id="kline" style="height:520px"></div>
+      </div>
+      <div class="term-right" id="term_analysis">
+        <div class="status" style="padding:10px 0">加载分析中…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 标的搜索弹窗 -->
+  <div id="searchModal" class="modal-mask" onclick="if(event.target===this)closeSearch()">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="mkt-tabs">
+          <button data-mkt="crypto" class="on">全球数字资产</button>
+          <button data-mkt="ashare">A股</button>
+          <span class="soon">美股/外汇/港股/期货 · 二期</span>
+        </div>
+        <button class="esc" onclick="closeSearch()">Esc</button>
+      </div>
+      <input id="searchInput" placeholder="搜索：如 BTC、ETH、600519" autocomplete="off">
+      <div id="searchResults" class="results"></div>
+      <div class="results-foot" id="searchFoot"></div>
     </div>
   </div>
 
@@ -245,7 +341,7 @@
         </div>`;
     }
 
-    const ALL_TABS = ['bt','scan','paper','ashare','crypto'];
+    const ALL_TABS = ['terminal','bt','scan','paper','ashare','crypto'];
     let pfTimer = null;
     function switchTab(t){
       ALL_TABS.forEach(x=>{
@@ -259,6 +355,7 @@
         loadPortfolio(t);
         pfTimer = setInterval(()=>loadPortfolio(t), 30000);  // 每30秒刷新
       }
+      if(t==='terminal') initTerminal();
     }
 
     const STRAT_LABEL = {
@@ -421,6 +518,107 @@
     });
     document.getElementById('run').addEventListener('click', runBacktest);
     document.getElementById('scan').addEventListener('click', runScan);
+
+    /* ---------- 行情终端 ---------- */
+    let kchart=null, subPaneId=null, T={market:'crypto',symbol:'BTC/USDT',name:'比特币',tf:'1d',sub:'VOL'};
+    function initTerminal(){
+      if(kchart) { loadKline(); return; }
+      kchart = klinecharts.init('kline', {
+        styles:{ candle:{ tooltip:{ showRule:'follow_cross' } } }
+      });
+      kchart.createIndicator('MA', true, {id:'candle_pane'});
+      subPaneId = kchart.createIndicator('VOL');
+      // 周期/副图切换
+      tf_group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+        tf_group.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on'); T.tf=b.dataset.tf; loadKline(); loadAnalysis();
+      });
+      sub_group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+        sub_group.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on'); T.sub=b.dataset.ind;
+        if(subPaneId) kchart.createIndicator(T.sub, false, {id:subPaneId});
+      });
+      loadKline(); loadAnalysis();
+    }
+    async function loadKline(){
+      const ppy = T.market==='crypto'?365:252;
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:500});
+      try{
+        const d = await (await fetch('/api/klines?'+p)).json();
+        if(d.error){ t_quote.textContent='拉取失败: '+d.error; return; }
+        kchart.applyNewData(d.klines);
+        const last = d.klines[d.klines.length-1];
+        if(last) t_quote.innerHTML = `收 <b>${last.close}</b>`;
+      }catch(e){ t_quote.textContent='请求失败'; }
+    }
+    function gaugeColor(v){ return v>=60?'var(--up)':v<=40?'var(--down)':'var(--gold)'; }
+    async function loadAnalysis(){
+      const box = document.getElementById('term_analysis');
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
+      let d;
+      try{ d = await (await fetch('/api/analyze?'+p)).json(); }
+      catch(e){ box.innerHTML='<div class="status">分析失败</div>'; return; }
+      if(d.error){ box.innerHTML=`<div class="status">分析失败: ${d.error}</div>`; return; }
+      const dimBar = (k,v)=>`<div class="dim"><div class="top"><span>${k}</span><span>${v}</span></div>
+        <div class="track"><div class="fill" style="width:${v}%;background:${gaugeColor(v)}"></div></div></div>`;
+      const voteChip = (k,v)=>`<span class="vote ${v>0?'up':v<0?'dn':'mid'}">${k} ${v>0?'▲':v<0?'▼':'—'}</span>`;
+      const VN={ema:'EMA',supertrend:'超级趋势',macd:'MACD',rsi:'RSI',bbands:'布林',volume:'量价'};
+      box.innerHTML = `
+        <div class="an-card gauge">
+          <h4>多空共振评分</h4>
+          <div class="num" style="color:${gaugeColor(d.gauge)}">${d.gauge}</div>
+          <div class="lbl" style="color:${gaugeColor(d.gauge)}">${d.verdict}</div>
+        </div>
+        <div class="an-card">
+          <h4>关键价位</h4>
+          <div class="lvls">
+            <div class="lvl"><div class="k">现价</div><div class="v">${d.price}</div></div>
+            <div class="lvl"><div class="k">阻力</div><div class="v" style="color:var(--down)">${d.resistance}</div></div>
+            <div class="lvl"><div class="k">支撑</div><div class="v" style="color:var(--up)">${d.support}</div></div>
+            <div class="lvl"><div class="k">止损(2×ATR)</div><div class="v" style="color:var(--gold)">${d.stop}</div></div>
+          </div>
+        </div>
+        <div class="an-card">
+          <h4>分维度分析</h4>
+          ${Object.entries(d.dims).map(([k,v])=>dimBar(k,v)).join('')}
+        </div>
+        <div class="an-card">
+          <h4>共振面板 · 多指标投票</h4>
+          <div class="votes">${Object.entries(d.votes).map(([k,v])=>voteChip(VN[k]||k,v)).join('')}</div>
+        </div>
+        <div class="an-card">
+          <h4>分析解读</h4>
+          <div class="an-text">${d.text}</div>
+          <div class="an-src">来源：${d.source}</div>
+        </div>`;
+    }
+    /* 搜索弹窗 */
+    let searchMkt='crypto', searchTimer=null;
+    function openSearch(){ searchModal.classList.add('on'); searchInput.value=''; searchInput.focus(); doSearch(); }
+    function closeSearch(){ searchModal.classList.remove('on'); }
+    async function doSearch(){
+      const q = searchInput.value.trim();
+      const d = await (await fetch('/api/search?'+new URLSearchParams({q,market:searchMkt}))).json();
+      const rows = (d.results||[]).map(r=>`<div class="row" onclick='pickSym(${JSON.stringify(r).replace(/'/g,"&#39;")})'>
+        <span class="nm">${r.name}</span><span class="cd">${r.code}</span></div>`).join('')
+        || '<div class="status" style="padding:14px">无匹配</div>';
+      searchResults.innerHTML = rows;
+      searchFoot.textContent = `${searchMkt==='crypto'?'全球数字资产':'A股'} · 共 ${d.total||0} 个匹配（显示前 ${(d.results||[]).length}）`;
+    }
+    function pickSym(r){
+      T.market = searchMkt; T.symbol = r.code; T.name = r.name;
+      t_symname.textContent = r.name; t_symcode.textContent = r.code;
+      closeSearch(); loadKline(); loadAnalysis();
+    }
+    document.querySelectorAll('.mkt-tabs button').forEach(b=>b.onclick=()=>{
+      document.querySelectorAll('.mkt-tabs button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); searchMkt=b.dataset.mkt; doSearch();
+    });
+    document.getElementById('searchInput').addEventListener('input',()=>{
+      clearTimeout(searchTimer); searchTimer=setTimeout(doSearch,300);
+    });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSearch(); });
+
     loadStrategies();
   </script>
 </body>

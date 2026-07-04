@@ -12,6 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..backtest import Backtester
 from ..data.loader import get_ohlcv
@@ -19,6 +20,9 @@ from ..strategies import REGISTRY
 
 app = FastAPI(title="qbot 量化面板")
 TEMPLATES = Path(__file__).parent / "templates"
+STATIC = Path(__file__).parent / "static"
+STATIC.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -119,6 +123,57 @@ def api_scan(
         except Exception as e:  # noqa: BLE001
             rows.append({"symbol": sym, "error": str(e)[:120]})
     return JSONResponse(rows)
+
+
+@app.get("/api/klines")
+def api_klines(market: str = "crypto", symbol: str = "BTC/USDT",
+               timeframe: str = "1d", limit: int = 500) -> JSONResponse:
+    """行情终端K线：返回 KLineChart 需要的 [{timestamp,open,high,low,close,volume}]。"""
+    try:
+        df = get_ohlcv(market, symbol, timeframe, limit=limit, fallback_synthetic=False)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+    out = [{
+        "timestamp": int(ts.timestamp() * 1000),
+        "open": round(float(r.open), 6), "high": round(float(r.high), 6),
+        "low": round(float(r.low), 6), "close": round(float(r.close), 6),
+        "volume": round(float(r.volume), 4),
+    } for ts, r in df.iterrows()]
+    return JSONResponse({"klines": out})
+
+
+@app.get("/api/search")
+def api_search(q: str = "", market: str = "crypto") -> JSONResponse:
+    """标的搜索：加密(OKX全市场) + A股。其它市场二期接入。"""
+    q = q.strip().upper()
+    results = []
+    try:
+        if market == "crypto":
+            from ..data.crypto import list_okx_symbols
+            syms = list_okx_symbols("USDT")
+            for s in syms:
+                if not q or q in s.upper():
+                    results.append({"name": s.split("/")[0], "code": s})
+        elif market == "ashare":
+            from ..universe import ashare_universe
+            for code in ashare_universe(top=300):
+                if not q or q in code:
+                    results.append({"name": code, "code": code})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150], "results": []})
+    return JSONResponse({"results": results[:60], "total": len(results)})
+
+
+@app.get("/api/analyze")
+def api_analyze(market: str = "crypto", symbol: str = "BTC/USDT",
+                timeframe: str = "1d", limit: int = 400) -> JSONResponse:
+    """行情终端右侧：共振投票 + 结构化分析（阻力/支撑/止损/分维度/文字解读）。"""
+    try:
+        df = get_ohlcv(market, symbol, timeframe, limit=limit, fallback_synthetic=False)
+        from .analysis import analyze
+        return JSONResponse(analyze(df))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
 
 @app.get("/api/portfolio")
