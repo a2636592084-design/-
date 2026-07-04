@@ -201,6 +201,19 @@
           <td class="sym">${t.symbol}</td><td>${t.price}</td><td>${t.amount}</td></tr>`).join('') ||
         `<tr><td colspan="5" style="color:var(--muted)">暂无成交</td></tr>`;
 
+      // 只出信号模式(A股)：把该买的清单直接列出来，而不是显示空持仓
+      const suggestRows = (d.scan||[]).filter(r=>r.long).slice(0, d.max_positions).map(r=>`
+        <tr><td class="sym">${r.symbol}</td><td>${r.price}</td>
+          <td class="pos">+${Number(r.strength).toFixed(2)}</td></tr>`).join('') ||
+        `<tr><td colspan="3" style="color:var(--muted)">当前无做多信号（空仓观望）</td></tr>`;
+      const holdBlock = d.execute
+        ? `<h3 class="pf-h">当前持仓</h3>
+           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>浮盈</th><th>数量</th></tr></thead>
+             <tbody>${posRows}</tbody></table>`
+        : `<h3 class="pf-h">建议买入（手动下单 · 共振分最高的前 ${d.max_positions} 个做多信号）</h3>
+           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>共振分</th></tr></thead>
+             <tbody>${suggestRows}</tbody></table>`;
+
       box.innerHTML = `
         <div class="controls" style="border:none">
           <div style="flex:1">
@@ -214,13 +227,13 @@
         <div class="metrics">
           <div class="card"><div class="k">净值</div><div class="v">${d.equity?.toLocaleString?.()??d.equity}</div></div>
           <div class="card"><div class="k">现金</div><div class="v">${d.cash?.toLocaleString?.()??d.cash}</div></div>
-          <div class="card"><div class="k">持仓数</div><div class="v">${(d.positions||[]).length}/${d.max_positions}</div></div>
+          ${d.execute
+            ? `<div class="card"><div class="k">持仓数</div><div class="v">${(d.positions||[]).length}/${d.max_positions}</div></div>`
+            : `<div class="card"><div class="k">做多信号</div><div class="v">${(d.scan||[]).filter(r=>r.long).length}</div></div>`}
           <div class="card"><div class="k">全市场</div><div class="v">${d.universe_size}</div></div>
         </div>
         <div class="scanwrap">
-          <h3 class="pf-h">${d.execute?'当前持仓':'建议持有（手动下单）'}</h3>
-          <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>浮盈</th><th>数量</th></tr></thead>
-            <tbody>${posRows}</tbody></table>
+          ${holdBlock}
           <h3 class="pf-h">全市场扫描 · Top 信号（按共振分/强度）</h3>
           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>强度</th><th>信号</th></tr></thead>
             <tbody>${scanRows}</tbody></table>
