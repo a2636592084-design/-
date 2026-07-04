@@ -232,9 +232,24 @@ class PortfolioEngine:
                 try:
                     self.tick()
                 except Exception as e:  # noqa: BLE001
-                    log.exception("组合 tick 异常，跳过本轮: %s", e)
+                    self._log_friendly_error(e)
                 time.sleep(self.poll_seconds)
         except KeyboardInterrupt:
             log.info("收到停止信号，组合引擎退出。")
         finally:
             self.state.running = False
+
+    @staticmethod
+    def _log_friendly_error(e: Exception) -> None:
+        """把常见错误翻译成一行人话，不吓唬新手（仍跳过本轮、继续运行）。"""
+        msg = str(e)
+        if any(k in msg for k in ("50113", "Invalid Sign", "Unauthorized", "401")):
+            log.error("OKX 认证失败：请确认 .env 的 key/secret/passphrase 三项正确无空格，"
+                      "且是【OKX 模拟交易】里生成的专用 API Key（实盘 key 不能配 OKX_DEMO=1）。"
+                      "本轮跳过，会自动重试。")
+        elif any(k in msg for k in ("getaddrinfo", "Failed to resolve",
+                                    "NameResolution", "ConnectionError", "Max retries")):
+            log.error("连不上 OKX：多半是代理没开。请确认 Clash 已开【系统代理】、"
+                      "且 .env 里配了 HTTPS_PROXY。本轮跳过，会自动重试。")
+        else:
+            log.exception("组合 tick 异常，跳过本轮: %s", e)
