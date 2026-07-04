@@ -25,6 +25,10 @@ class OKXBroker(Broker):
             "password": passphrase,
             "enableRateLimit": True,
         })
+        # 关键：下单/查账户也必须走代理，否则国内直连 www.okx.com 会 DNS 失败。
+        # 复用行情层已验证的代理/CA 配置。
+        from ..data.crypto import _apply_proxy
+        _apply_proxy(self.exchange)
         if demo:
             self.exchange.headers = {"x-simulated-trading": "1"}
             log.warning("OKX 处于【模拟盘】模式（demo=True），不会动用真钱。")
