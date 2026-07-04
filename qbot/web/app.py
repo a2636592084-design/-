@@ -190,7 +190,16 @@ def api_analyze(market: str = "crypto", symbol: str = "BTC/USDT",
     try:
         df = _terminal_ohlcv(market, symbol, timeframe, limit=max(limit, 300))
         from .analysis import analyze
-        return JSONResponse(analyze(df))
+        res = analyze(df)
+        # 配了 DeepSeek key 就用大模型解读，否则保持规则版（失败也回退）
+        from .llm import deepseek_analyze, deepseek_available
+        if deepseek_available():
+            try:
+                res["text"] = deepseek_analyze(symbol, timeframe, res)
+                res["source"] = "DeepSeek 大模型"
+            except Exception as e:  # noqa: BLE001
+                res["source"] = f"规则引擎（DeepSeek 调用失败：{str(e)[:60]}）"
+        return JSONResponse(res)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
