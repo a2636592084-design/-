@@ -65,6 +65,7 @@ class PortfolioEngine:
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
+        self._untradeable: set[str] = set()   # 记住下不了单的标的(如模拟盘不支持)，不再重试
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
     def _scan(self) -> list[dict]:
@@ -130,28 +131,45 @@ class PortfolioEngine:
             return trades
 
         long_syms = {r["symbol"] for r in scan if r["long"]}
-        # 1) 卖出：持仓中信号已转空的
+        # 1) 卖出：持仓中信号已转空的（单个失败不影响其它）
         for sym in list(held):
             if sym not in long_syms:
                 amt = account.positions[sym].amount
-                self.broker.submit(Order(sym, "sell", amt))
-                trades.append(self._trade("sell", sym, amt, prices[sym]))
-                held.discard(sym)
+                if self._safe_submit(sym, "sell", amt, prices[sym], trades):
+                    held.discard(sym)
 
-        # 2) 买入：按强度排序，填满剩余仓位
+        # 2) 买入：按强度排序，填满剩余仓位（跳过下不了单/已知不可交易的标的）
         weight = min(1.0 / self.max_positions, self.risk.cfg.max_position_per_symbol)
-        candidates = sorted((r for r in scan if r["long"] and r["symbol"] not in held),
-                            key=lambda r: r["strength"], reverse=True)
+        candidates = sorted(
+            (r for r in scan if r["long"] and r["symbol"] not in held
+             and r["symbol"] not in self._untradeable),
+            key=lambda r: r["strength"], reverse=True)
         slots = self.max_positions - len(held)
-        for r in candidates[:max(0, slots)]:
+        for r in candidates:
+            if len(held) >= self.max_positions:
+                break
             sym, price = r["symbol"], r["price"]
             amt = (equity * weight) / price if price > 0 else 0.0
             if amt <= 0:
                 continue
-            self.broker.submit(Order(sym, "buy", amt))
-            trades.append(self._trade("buy", sym, amt, price))
-            held.add(sym)
+            if self._safe_submit(sym, "buy", amt, price, trades):
+                held.add(sym)
         return trades
+
+    def _safe_submit(self, sym, side, amt, price, trades) -> bool:
+        """下单，失败只跳过该标的、不中断整轮。返回是否成功。"""
+        try:
+            self.broker.submit(Order(sym, side, amt))
+            trades.append(self._trade(side, sym, amt, price))
+            return True
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            if "does not have market symbol" in msg or "BadSymbol" in msg or "51001" in msg:
+                self._untradeable.add(sym)   # 该标的（模拟盘）不可交易，记下不再重试
+                log.warning("%s 不可交易（%s模拟盘可能不支持），已跳过。", sym, "OKX")
+            else:
+                log.warning("%s 下单失败：%s（跳过）", sym, msg[:100])
+            return False
 
     def _trade(self, side, sym, amt, price) -> dict:
         rec = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
