@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 停止 qbot 全部后台服务（Mac / Linux）
 cd "$(dirname "$0")/.."
-for svc in dashboard watch live; do
+for svc in dashboard pf_paper pf_ashare pf_crypto watch live; do
   pidfile="logs/${svc}.pid"
   if [ -f "$pidfile" ]; then
     pid="$(cat "$pidfile")"
@@ -11,7 +11,5 @@ for svc in dashboard watch live; do
       echo "· $svc 未在运行"
     fi
     rm -f "$pidfile"
-  else
-    echo "· 没找到 $svc 的 PID 文件"
   fi
 done

@@ -1,0 +1,20 @@
+[Unit]
+Description=qbot 组合引擎·加密OKX（喂"量化实盘加密"页）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+# 用 .env 的 OKX key。OKX_DEMO=1 为模拟盘(无真钱)；设 0 才动真钱，
+# 且需在下行 ExecStart 末尾加 --i-understand-the-risk。请先跑稳模拟盘。
+ExecStart=/opt/qbot/.venv/bin/python run_portfolio.py \
+  --mode crypto --market crypto --broker okx --strategy confluence \
+  --top 60 --max-positions 12 --poll 300 --notify
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
