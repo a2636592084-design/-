@@ -541,8 +541,8 @@
       loadKline(); loadAnalysis();
     }
     async function loadKline(){
-      const ppy = T.market==='crypto'?365:252;
-      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:500});
+      t_quote.textContent = '⏳ 加载中…';
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:300});
       try{
         const d = await (await fetch('/api/klines?'+p)).json();
         if(d.error){ t_quote.textContent='拉取失败: '+d.error; return; }
@@ -554,10 +554,12 @@
     function gaugeColor(v){ return v>=60?'var(--up)':v<=40?'var(--down)':'var(--gold)'; }
     async function loadAnalysis(){
       const box = document.getElementById('term_analysis');
+      box.style.opacity = '0.45';   // 加载中：淡化旧内容，给出反馈
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
       let d;
       try{ d = await (await fetch('/api/analyze?'+p)).json(); }
-      catch(e){ box.innerHTML='<div class="status">分析失败</div>'; return; }
+      catch(e){ box.innerHTML='<div class="status">分析失败</div>'; box.style.opacity='1'; return; }
+      box.style.opacity = '1';
       if(d.error){ box.innerHTML=`<div class="status">分析失败: ${d.error}</div>`; return; }
       const dimBar = (k,v)=>`<div class="dim"><div class="top"><span>${k}</span><span>${v}</span></div>
         <div class="track"><div class="fill" style="width:${v}%;background:${gaugeColor(v)}"></div></div></div>`;

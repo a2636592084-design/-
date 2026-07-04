@@ -125,12 +125,31 @@ def api_scan(
     return JSONResponse(rows)
 
 
+import time as _time
+
+_OHLCV_CACHE: dict = {}          # (market,symbol,tf) -> (ts, df)
+_CACHE_TTL = 30.0                # 30秒内切回同一标的/周期直接命中，秒开
+
+
+def _terminal_ohlcv(market: str, symbol: str, timeframe: str, limit: int = 300):
+    """终端专用带缓存的行情拉取（K线与分析共用一次，减少 OKX 请求、提速）。"""
+    key = (market, symbol, timeframe)
+    hit = _OHLCV_CACHE.get(key)
+    if hit and (_time.time() - hit[0]) < _CACHE_TTL:
+        return hit[1]
+    df = get_ohlcv(market, symbol, timeframe, limit=limit, fallback_synthetic=False)
+    _OHLCV_CACHE[key] = (_time.time(), df)
+    if len(_OHLCV_CACHE) > 200:   # 简单上限，防内存无限增长
+        _OHLCV_CACHE.pop(next(iter(_OHLCV_CACHE)))
+    return df
+
+
 @app.get("/api/klines")
 def api_klines(market: str = "crypto", symbol: str = "BTC/USDT",
-               timeframe: str = "1d", limit: int = 500) -> JSONResponse:
+               timeframe: str = "1d", limit: int = 300) -> JSONResponse:
     """行情终端K线：返回 KLineChart 需要的 [{timestamp,open,high,low,close,volume}]。"""
     try:
-        df = get_ohlcv(market, symbol, timeframe, limit=limit, fallback_synthetic=False)
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=limit)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
     out = [{
@@ -169,7 +188,7 @@ def api_analyze(market: str = "crypto", symbol: str = "BTC/USDT",
                 timeframe: str = "1d", limit: int = 400) -> JSONResponse:
     """行情终端右侧：共振投票 + 结构化分析（阻力/支撑/止损/分维度/文字解读）。"""
     try:
-        df = get_ohlcv(market, symbol, timeframe, limit=limit, fallback_synthetic=False)
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=max(limit, 300))
         from .analysis import analyze
         return JSONResponse(analyze(df))
     except Exception as e:  # noqa: BLE001
