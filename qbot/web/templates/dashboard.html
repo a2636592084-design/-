@@ -581,12 +581,53 @@
       line(L.stop,'#d6a545','止损');
     }
     function gaugeColor(v){ return v>=60?'var(--up)':v<=40?'var(--down)':'var(--gold)'; }
+    function structureCard(s){
+      if(!s || s.error) return '';
+      const gc = gaugeColor(s.gauge);
+      const evTag = (e)=>{
+        const up = e.dir==='up';
+        return `<span class="vote ${up?'up':'dn'}">${e.type} ${up?'↑':'↓'} ${e.level}</span>`;
+      };
+      const evs = (s.smc.events||[]).map(evTag).join('') || '<span class="vote mid">暂无结构破坏</span>';
+      const zoneRow = (label,z,color)=>{
+        if(!z) return '';
+        const lo = z.bottom ?? z.zd ?? z.low, hi = z.top ?? z.zg ?? z.high;
+        return `<div class="lvl"><div class="k">${label}</div>
+          <div class="v" style="color:${color}">${lo}~${hi}</div></div>`;
+      };
+      const dowMap={up:'上升趋势',down:'下降趋势',range:'震荡/待定'};
+      return `
+        <div class="an-card">
+          <h4>高阶结构 · 道氏 / SMC / 缠论
+            <span style="float:right;color:${gc};font-weight:700">${s.verdict} ${s.gauge}</span></h4>
+          <div class="votes" style="margin-bottom:8px">
+            <span class="vote ${s.dow.trend==='up'?'up':s.dow.trend==='down'?'dn':'mid'}">道氏 ${dowMap[s.dow.trend]||s.dow.trend}</span>
+            <span class="vote ${s.chan.score>0?'up':s.chan.score<0?'dn':'mid'}">缠论 ${s.chan.bi}笔${s.chan.center?' · 有中枢':''}</span>
+          </div>
+          <div class="votes" style="margin-bottom:8px">${evs}</div>
+          <div class="lvls">
+            ${zoneRow('订单块', s.smc.order_block, 'var(--gold)')}
+            ${zoneRow('下方缺口FVG', s.smc.bull_fvg, 'var(--up)')}
+            ${zoneRow('上方缺口FVG', s.smc.bear_fvg, 'var(--down)')}
+            ${s.chan.center?`<div class="lvl"><div class="k">缠论中枢(${s.chan.center.pos})</div>
+              <div class="v" style="color:var(--gold)">${s.chan.center.zd}~${s.chan.center.zg}</div></div>`:''}
+          </div>
+          <div class="an-text" style="margin-top:8px">${s.text}</div>
+          <div class="an-src">${s.note}</div>
+        </div>`;
+    }
     async function loadAnalysis(){
       const box = document.getElementById('term_analysis');
       box.style.opacity = '0.45';   // 加载中：淡化旧内容，给出反馈
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
-      let d;
-      try{ d = await (await fetch('/api/analyze?'+p)).json(); }
+      let d, s=null;
+      try{
+        const [ra, rs] = await Promise.all([
+          fetch('/api/analyze?'+p).then(r=>r.json()),
+          fetch('/api/structure?'+p).then(r=>r.json()).catch(()=>null),
+        ]);
+        d = ra; s = rs;
+      }
       catch(e){ box.innerHTML='<div class="status">分析失败</div>'; box.style.opacity='1'; return; }
       box.style.opacity = '1';
       if(d.error){ box.innerHTML=`<div class="status">分析失败: ${d.error}</div>`; return; }
@@ -617,6 +658,7 @@
           <h4>共振面板 · 多指标投票</h4>
           <div class="votes">${Object.entries(d.votes).map(([k,v])=>voteChip(VN[k]||k,v)).join('')}</div>
         </div>
+        ${structureCard(s)}
         <div class="an-card">
           <h4>分析解读</h4>
           <div class="an-text">${d.text}</div>

@@ -204,6 +204,18 @@ def api_analyze(market: str = "crypto", symbol: str = "BTC/USDT",
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
 
+@app.get("/api/structure")
+def api_structure(market: str = "crypto", symbol: str = "BTC/USDT",
+                  timeframe: str = "1d", limit: int = 300) -> JSONResponse:
+    """高阶结构分析：道氏 / SMC / 缠论（分型-笔-中枢）。"""
+    try:
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=max(limit, 120))
+        from ..strategies.structure import structure_report
+        return JSONResponse(structure_report(df))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+
+
 @app.get("/api/signals")
 def api_signals(market: str = "crypto", symbol: str = "BTC/USDT",
                 timeframe: str = "1d", limit: int = 300) -> JSONResponse:
