@@ -8,3 +8,7 @@
 """
 
 __version__ = "0.1.0"
+
+# 自动加载项目根目录的 .env（代理、API密钥、通知token等），
+# 使 run_watch / run_dashboard 等所有入口无需手动 set 环境变量。
+from . import config as _config  # noqa: E402,F401
