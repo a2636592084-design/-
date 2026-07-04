@@ -58,6 +58,10 @@ def get_ohlcv(
         if market == "ashare":
             from .ashare import fetch_ashare_daily
             return sanitize_ohlcv(fetch_ashare_daily(symbol), f"{market}/{symbol}")
+        if market in ("us", "hk", "forex", "futures"):
+            from .yahoo import fetch_yahoo_ohlcv
+            return sanitize_ohlcv(
+                fetch_yahoo_ohlcv(symbol, timeframe, limit), f"{market}/{symbol}")
         if market == "synthetic":
             return synthetic_ohlcv(periods=limit)
         raise ValueError(f"未知市场: {market}")

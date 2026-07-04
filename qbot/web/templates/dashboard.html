@@ -107,7 +107,7 @@
     .modal { background:var(--bg); border:1px solid var(--line); border-radius:12px; width:640px;
       max-width:94vw; margin-top:8vh; padding:16px; }
     .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-    .mkt-tabs { display:flex; gap:6px; align-items:center; }
+    .mkt-tabs { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
     .mkt-tabs button { background:transparent; border:none; color:var(--muted); cursor:pointer;
       padding:6px 12px; border-radius:8px; font-size:13px; }
     .mkt-tabs button.on { background:var(--accent); color:#04101f; font-weight:600; }
@@ -244,9 +244,12 @@
     <div class="modal">
       <div class="modal-head">
         <div class="mkt-tabs">
-          <button data-mkt="crypto" class="on">全球数字资产</button>
+          <button data-mkt="crypto" class="on">加密</button>
           <button data-mkt="ashare">A股</button>
-          <span class="soon">美股/外汇/港股/期货 · 二期</span>
+          <button data-mkt="us">美股</button>
+          <button data-mkt="hk">港股</button>
+          <button data-mkt="forex">外汇</button>
+          <button data-mkt="futures">期货</button>
         </div>
         <button class="esc" onclick="closeSearch()">Esc</button>
       </div>
@@ -564,19 +567,23 @@
       kchart.setLoadDataCallback && kchart.setLoadDataCallback(loadMoreKline);
       loadKline(); loadAnalysis();
     }
+    // 当前选择的指纹：用于丢弃"慢响应覆盖新选择"的过期结果（切标的竞态）
+    function curTok(){ return T.market+'|'+T.symbol+'|'+T.tf; }
     async function loadKline(){
       clearInterval(liveTimer); liveTimer=null;
+      const tok = curTok();
       t_quote.textContent = '⏳ 加载中…';
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:500});
       try{
         const d = await (await fetch('/api/klines?'+p)).json();
+        if(tok !== curTok()) return;           // 选择已切换，丢弃这份过期数据
         if(d.error){ t_quote.textContent='拉取失败: '+d.error; return; }
         kchart.applyNewData(d.klines, true);   // true=允许继续向左加载更多历史
         const last = d.klines[d.klines.length-1];
         if(last) t_quote.innerHTML = `收 <b>${last.close}</b>`;
         drawSignals();
         startLive();
-      }catch(e){ t_quote.textContent='请求失败'; }
+      }catch(e){ if(tok===curTok()) t_quote.textContent='请求失败'; }
     }
     // 向左加载更多历史：兼容 KLineChart v9 两种回调签名
     async function loadMoreKline(arg1, arg2){
@@ -601,10 +608,11 @@
     }
     async function liveTick(){
       if(document.hidden || !kchart) return;
+      const tok = curTok();
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,live:1});
       let d;
       try{ d = await (await fetch('/api/klines?'+p)).json(); }catch(e){ return; }
-      if(!d || d.error || !(d.klines||[]).length) return;
+      if(tok !== curTok() || !d || d.error || !(d.klines||[]).length) return;
       d.klines.forEach(b=>{ try{ kchart.updateData(b); }catch(e){} });
       const last = d.klines[d.klines.length-1];
       if(last) t_quote.innerHTML = `收 <b>${last.close}</b> <span class="live-dot">●实时</span>`;
@@ -612,10 +620,11 @@
     async function drawSignals(){
       try{ kchart.removeOverlay(); }catch(e){}       // 清掉旧标注
       if(!document.getElementById('t_sig').checked) return;
+      const tok = curTok();
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
       let d;
       try{ d = await (await fetch('/api/signals?'+p)).json(); }catch(e){ return; }
-      if(!d || d.error) return;
+      if(tok !== curTok() || !d || d.error) return;
       const C = {buy:'#26a69a', short:'#ef5350', sell:'#8b949e', cover:'#8b949e'};
       (d.markers||[]).forEach(m=>{
         try{ kchart.createOverlay({
@@ -673,6 +682,7 @@
     async function loadAnalysis(){
       const box = document.getElementById('term_analysis');
       box.style.opacity = '0.45';   // 加载中：淡化旧内容，给出反馈
+      const tok = curTok();
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
       let d, s=null;
       try{
@@ -683,6 +693,7 @@
         d = ra; s = rs;
       }
       catch(e){ box.innerHTML='<div class="status">分析失败</div>'; box.style.opacity='1'; return; }
+      if(tok !== curTok()) return;   // 选择已切换，丢弃过期分析
       box.style.opacity = '1';
       if(d.error){ box.innerHTML=`<div class="status">分析失败: ${d.error}</div>`; return; }
       const dimBar = (k,v)=>`<div class="dim"><div class="top"><span>${k}</span><span>${v}</span></div>
@@ -721,16 +732,20 @@
     }
     /* 搜索弹窗 */
     let searchMkt='crypto', searchTimer=null;
+    const MKT_NAME={crypto:'加密',ashare:'A股',us:'美股',hk:'港股',forex:'外汇',futures:'期货'};
     function openSearch(){ searchModal.classList.add('on'); searchInput.value=''; searchInput.focus(); doSearch(); }
     function closeSearch(){ searchModal.classList.remove('on'); }
     async function doSearch(){
       const q = searchInput.value.trim();
+      searchInput.placeholder = searchMkt==='crypto' ? '搜索：如 BTC、ETH'
+        : searchMkt==='ashare' ? '搜索：如 600519'
+        : '搜索：名称或代码（如 苹果 / AAPL / 黄金 / 腾讯）';
       const d = await (await fetch('/api/search?'+new URLSearchParams({q,market:searchMkt}))).json();
       const rows = (d.results||[]).map(r=>`<div class="row" onclick='pickSym(${JSON.stringify(r).replace(/'/g,"&#39;")})'>
         <span class="nm">${r.name}</span><span class="cd">${r.code}</span></div>`).join('')
         || '<div class="status" style="padding:14px">无匹配</div>';
       searchResults.innerHTML = rows;
-      searchFoot.textContent = `${searchMkt==='crypto'?'全球数字资产':'A股'} · 共 ${d.total||0} 个匹配（显示前 ${(d.results||[]).length}）`;
+      searchFoot.textContent = `${MKT_NAME[searchMkt]||searchMkt} · 共 ${d.total||0} 个匹配（显示前 ${(d.results||[]).length}）`;
     }
     function pickSym(r){
       T.market = searchMkt; T.symbol = r.code; T.name = r.name;

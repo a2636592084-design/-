@@ -197,6 +197,11 @@ def api_search(q: str = "", market: str = "crypto") -> JSONResponse:
             for code in ashare_universe(top=300):
                 if not q or q in code:
                     results.append({"name": code, "code": code})
+        elif market in ("us", "hk", "forex", "futures"):
+            from ..data.yahoo import list_yahoo_symbols
+            for code, name in list_yahoo_symbols(market):
+                if not q or q in code.upper() or q in name.upper():
+                    results.append({"name": name, "code": code})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)[:150], "results": []})
     return JSONResponse({"results": results[:60], "total": len(results)})

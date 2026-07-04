@@ -15,12 +15,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .indicators import atr
+
 
 # ============================================================ 基础：摆动点
-def _swings(df: pd.DataFrame, k: int = 2) -> list[tuple[int, float, str]]:
+def _fractals(df: pd.DataFrame, k: int = 1) -> list[tuple[int, float, str]]:
     """分形摆动点：high[i] 为左右各 k 根里最高 → 摆动高('H')；对称为摆动低('L')。
 
-    返回按时间排序的 [(idx, price, 'H'|'L'), ...]。k 越大越"大级别"、点越少。
+    细粒度、点很多，专供缠论"分型"用。趋势结构请用 _pivots（带显著性过滤）。
     """
     high = df["high"].to_numpy()
     low = df["low"].to_numpy()
@@ -36,16 +38,43 @@ def _swings(df: pd.DataFrame, k: int = 2) -> list[tuple[int, float, str]]:
     return pts
 
 
-def _zigzag(pts: list[tuple[int, float, str]]) -> list[tuple[int, float, str]]:
-    """把摆动点压成严格交替的高-低-高序列（连续同类只留更极端的那个）。"""
-    out: list[list] = []
-    for idx, price, kind in pts:
-        if out and out[-1][2] == kind:
-            if (kind == "H" and price >= out[-1][1]) or (kind == "L" and price <= out[-1][1]):
-                out[-1] = [idx, price, kind]
+def _pivots(df: pd.DataFrame, mult: float = 3.5) -> list[tuple[int, float, str]]:
+    """显著摆动点（阈值 ZigZag）：只保留振幅 ≥ mult×典型ATR 的高低点，过滤小噪声。
+
+    这是"高阶结构"的地基——用波动率自适应的阈值，让不同市场（美股/外汇/黄金/币）
+    都只留下**真正的波段**，而不是每一根小回调都算一个结构点。严格因果：
+    某个摆动点在价格反向走出阈值那一刻才被确认，最右侧的点是"待确认"的。
+    """
+    high = df["high"].to_numpy()
+    low = df["low"].to_numpy()
+    n = len(df)
+    if n < 3:
+        return []
+    # 逐根 ATR（Wilder EWM，天然因果：第 i 根只依赖 i 及之前）→ 阈值自适应且无未来函数。
+    atr_arr = atr(df).to_numpy()
+    fallback = float(df["close"].iloc[-1]) * 0.02
+    piv: list[tuple[int, float, str]] = []
+    direction = 0                      # 0/1=上行段(找高点), -1=下行段(找低点)
+    up_i, up_p = 0, float(high[0])
+    dn_i, dn_p = 0, float(low[0])
+    for i in range(1, n):
+        a = atr_arr[i]
+        thr = (a if a == a and a > 0 else fallback) * mult
+        if direction >= 0:
+            if high[i] >= up_p:
+                up_p, up_i = float(high[i]), i
+            if up_p - low[i] >= thr:    # 自高点回落超阈值 → 确认一个摆动高
+                piv.append((up_i, up_p, "H"))
+                direction = -1
+                dn_p, dn_i = float(low[i]), i
         else:
-            out.append([idx, price, kind])
-    return [tuple(x) for x in out]
+            if low[i] <= dn_p:
+                dn_p, dn_i = float(low[i]), i
+            if high[i] - dn_p >= thr:    # 自低点反弹超阈值 → 确认一个摆动低
+                piv.append((dn_i, dn_p, "L"))
+                direction = 1
+                up_p, up_i = float(high[i]), i
+    return piv
 
 
 # ============================================================ 道氏理论
@@ -158,7 +187,7 @@ def chan_theory(df: pd.DataFrame) -> dict:
     - 笔：相邻顶底分型交替相连，且间隔≥4根K（近似缠论"独立一笔至少5K"）。
     - 中枢：连续3笔（4个转折点）价格区间的重叠 [ZD, ZG]，ZG>ZD 才成立。
     """
-    fr = _swings(df, k=1)                               # 3根K分型
+    fr = _fractals(df, k=1)                             # 3根K分型
     # 笔：交替 + 间隔约束
     bi: list[tuple[int, float, str]] = []
     for idx, price, kind in fr:
@@ -200,12 +229,11 @@ def chan_theory(df: pd.DataFrame) -> dict:
 
 
 # ============================================================ 汇总
-def structure_report(df: pd.DataFrame, k: int = 2) -> dict:
+def structure_report(df: pd.DataFrame, mult: float = 3.5) -> dict:
     """三套高阶结构分析汇总 + 综合结构分（-1~1）+ 中文解读。"""
-    if len(df) < 4 * k + 10:
+    if len(df) < 30:
         return {"error": "K线太少，无法做结构分析（建议≥60根）。"}
-    pts = _swings(df, k=k)
-    zz = _zigzag(pts)
+    zz = _pivots(df, mult=mult)
     dow = dow_theory(zz)
     smc = smc_structure(df, zz)
     chan = chan_theory(df)

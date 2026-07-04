@@ -6,16 +6,19 @@ import pandas as pd
 
 from qbot.data.synthetic import synthetic_ohlcv
 from qbot.strategies.structure import (
-    _swings,
-    _zigzag,
+    _fractals,
+    _pivots,
     chan_theory,
     dow_theory,
     structure_report,
 )
 
 
-def _ramp(n=160, start=100.0, end=180.0, amp=6.0, freq=8.0):
-    """带回调的单向行情：整体从 start 到 end，叠加正弦波段（制造摆动高低点）。"""
+def _ramp(n=200, start=100.0, end=200.0, amp=14.0, freq=6.0):
+    """带回调的单向行情：整体从 start 到 end，叠加正弦波段（制造显著摆动高低点）。
+
+    波段振幅（2×amp）需明显大于日内波幅(≈4)×阈值倍数，_pivots 才会认这些波段。
+    """
     base = np.linspace(start, end, n)
     close = base + np.sin(np.linspace(0, freq * np.pi, n)) * amp
     return pd.DataFrame({
@@ -51,26 +54,31 @@ def test_downtrend_detected():
     assert r["score"] < 0
 
 
-def test_swings_alternate():
-    """zigzag 后的结构点必须严格高低交替。"""
+def test_pivots_alternate():
+    """阈值 ZigZag 的结构点必须严格高低交替。"""
     df = synthetic_ohlcv(periods=500, seed=9)
-    zz = _zigzag(_swings(df, k=2))
+    zz = _pivots(df)
     kinds = [p[2] for p in zz]
     for a, b in zip(kinds, kinds[1:]):
         assert a != b
 
 
+def test_pivots_filters_noise():
+    """阈值 ZigZag 应比原始 3根K分型少得多（过滤了噪声波段）。"""
+    df = synthetic_ohlcv(periods=500, seed=4)
+    assert len(_pivots(df)) < len(_fractals(df, k=1))
+
+
 def test_causal_no_lookahead():
-    """截断到前缀，已确认的结构点（去掉最右待确认区）应保持一致。"""
+    """截断到前缀，已确认的结构点（去掉最右若干待确认点）应保持一致。"""
     df = synthetic_ohlcv(periods=400, seed=7)
-    k = 2
-    full = _swings(df, k=k)
-    cut = _swings(df.iloc[:250], k=k)
-    # 前缀内、且左右都有 k 根确认空间的点，两次结果必须一致
-    safe = [p for p in full if p[0] < 250 - k]
-    cut_set = {(p[0], round(p[1], 6), p[2]) for p in cut}
+    full = _pivots(df)
+    cut = _pivots(df.iloc[:250])
+    # 落在前缀早段的已确认摆动点，两次结果必须一致（最右侧待确认点除外）
+    safe = [p for p in full if p[0] < 220]
+    cut_set = {(p[0], round(p[1], 4), p[2]) for p in cut}
     for p in safe:
-        assert (p[0], round(p[1], 6), p[2]) in cut_set
+        assert (p[0], round(p[1], 4), p[2]) in cut_set
 
 
 def test_chan_center_zone_valid():
