@@ -10,6 +10,7 @@ from qbot.strategies.structure import (
     _pivots,
     chan_theory,
     dow_theory,
+    structure_overlays,
     structure_report,
 )
 
@@ -99,3 +100,31 @@ def test_too_few_bars():
     df = synthetic_ohlcv(periods=400, seed=1).iloc[:10]
     r = structure_report(df)
     assert "error" in r
+
+
+def test_overlays_geometry():
+    """画图数据结构完整、时间戳与价位合理（供前端直接叠加到K线）。"""
+    df = synthetic_ohlcv(periods=500, seed=6)
+    o = structure_overlays(df)
+    assert set(o) >= {"dow", "chan", "smc"}
+    # 道氏摆动点带标注
+    for s in o["dow"]["swings"]:
+        assert set(s) >= {"t", "price", "kind", "label"}
+        assert s["kind"] in ("H", "L")
+    # 缠论笔是折线点，中枢上沿高于下沿
+    assert all(set(p) >= {"t", "price"} for p in o["chan"]["bi"])
+    for c in o["chan"]["centers"]:
+        assert c["zg"] > c["zd"] and c["t2"] >= c["t1"]
+    # SMC 事件类型合法
+    for e in o["smc"]["events"]:
+        assert e["type"] in ("BOS", "CHoCH") and e["dir"] in ("up", "down")
+    # 缺口/订单块 top>bottom
+    for f in o["smc"]["fvgs"]:
+        assert f["top"] > f["bottom"]
+    for b in o["smc"]["order_blocks"]:
+        assert b["high"] > b["low"]
+
+
+def test_overlays_too_few_bars():
+    df = synthetic_ohlcv(periods=400, seed=1).iloc[:12]
+    assert "error" in structure_overlays(df)

@@ -79,6 +79,10 @@
     .tf-more { background:var(--panel); border:1px solid var(--line); color:var(--fg);
       border-radius:8px; padding:5px 6px; font-size:12.5px; cursor:pointer; }
     .t_quote { color:var(--muted); font-size:12px; }
+    .ov-group { display:flex; gap:10px; align-items:center; background:var(--panel);
+      border:1px solid var(--line); border-radius:8px; padding:4px 8px; }
+    .ov-group .chk { color:var(--fg); font-size:12.5px; display:inline-flex; align-items:center;
+      gap:3px; cursor:pointer; white-space:nowrap; }
     .live-dot { color:var(--up); animation:pulse 1.4s ease-in-out infinite; margin-left:4px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
     #kline { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
@@ -227,8 +231,12 @@
             <button data-ind="VOL" class="on">成交量</button><button data-ind="MACD">MACD</button>
             <button data-ind="RSI">RSI</button><button data-ind="CCI">CCI</button>
           </div>
-          <label class="chk" style="color:var(--fg);font-size:13px">
-            <input type="checkbox" id="t_sig" checked>📍买卖点/阻力支撑</label>
+          <div class="ov-group">
+            <label class="chk"><input type="checkbox" id="t_sig" checked>📍买卖点</label>
+            <label class="chk"><input type="checkbox" id="t_chan"><b style="color:#e0b040">缠论</b></label>
+            <label class="chk"><input type="checkbox" id="t_smc">SMC</label>
+            <label class="chk"><input type="checkbox" id="t_dow">道氏</label>
+          </div>
           <span class="t_quote" id="t_quote"></span>
         </div>
         <div id="kline" style="height:520px"></div>
@@ -561,7 +569,8 @@
         b.classList.add('on'); T.sub=b.dataset.ind;
         if(subPaneId) kchart.createIndicator(T.sub, false, {id:subPaneId});
       });
-      document.getElementById('t_sig').addEventListener('change', drawSignals);
+      ['t_sig','t_chan','t_smc','t_dow'].forEach(id=>
+        document.getElementById(id).addEventListener('change', drawSignals));
       // 向左滚动到头 → 按需加载更早的历史K线（加密支持，其它市场返回空即停止）
       kchart.setLoadMoreDataCallback && kchart.setLoadMoreDataCallback(loadMoreKline);
       kchart.setLoadDataCallback && kchart.setLoadDataCallback(loadMoreKline);
@@ -617,31 +626,104 @@
       const last = d.klines[d.klines.length-1];
       if(last) t_quote.innerHTML = `收 <b>${last.close}</b> <span class="live-dot">●实时</span>`;
     }
-    async function drawSignals(){
-      try{ kchart.removeOverlay(); }catch(e){}       // 清掉旧标注
-      if(!document.getElementById('t_sig').checked) return;
+    const OV = ()=>({ sig:t_sig.checked, chan:t_chan.checked, smc:t_smc.checked, dow:t_dow.checked });
+    // 统一叠加：清一次 + 按开关画各图层（买卖点 / 缠论 / SMC / 道氏），带竞态守卫
+    async function drawSignals(){   // 名称沿用，供 loadKline 调用
+      try{ kchart.removeOverlay(); }catch(e){}
+      const on = OV();
+      if(!(on.sig||on.chan||on.smc||on.dow)) return;
       const tok = curTok();
       const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
-      let d;
-      try{ d = await (await fetch('/api/signals?'+p)).json(); }catch(e){ return; }
-      if(tok !== curTok() || !d || d.error) return;
+      const needStruct = on.chan||on.smc||on.dow;
+      let sig=null, ov=null;
+      try{
+        [sig, ov] = await Promise.all([
+          on.sig ? fetch('/api/signals?'+p).then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
+          needStruct ? fetch('/api/overlays?'+p).then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
+        ]);
+      }catch(e){ return; }
+      if(tok !== curTok()) return;               // 选择已切换，别把旧图形画上去
+      if(sig && !sig.error) drawSigLayer(sig);
+      if(ov && !ov.error){
+        if(on.dow) drawDow(ov.dow);
+        if(on.chan) drawChan(ov.chan);
+        if(on.smc) drawSmc(ov.smc);
+      }
+    }
+    function _ov(o){ try{ kchart.createOverlay(o); }catch(e){} }
+    // 本 KLineChart 版本没有 rect/polygon 叠加，用 4 条 segment 画矩形边框（无填充但清晰）
+    function _box(t1,t2,hi,lo,color,dashed){
+      const st={ line:{ color:color, size:1, style: dashed?'dashed':'solid' } };
+      _ov({name:'segment',lock:true,points:[{timestamp:t1,value:hi},{timestamp:t2,value:hi}],styles:st});
+      _ov({name:'segment',lock:true,points:[{timestamp:t1,value:lo},{timestamp:t2,value:lo}],styles:st});
+      _ov({name:'segment',lock:true,points:[{timestamp:t1,value:hi},{timestamp:t1,value:lo}],styles:st});
+      _ov({name:'segment',lock:true,points:[{timestamp:t2,value:hi},{timestamp:t2,value:lo}],styles:st});
+    }
+    function drawSigLayer(d){
       const C = {buy:'#26a69a', short:'#ef5350', sell:'#8b949e', cover:'#8b949e'};
-      (d.markers||[]).forEach(m=>{
-        try{ kchart.createOverlay({
-          name:'simpleAnnotation', extendData:m.text,
-          points:[{timestamp:m.timestamp, value:m.price}],
-          styles:{ text:{ color:'#fff', backgroundColor:C[m.type]||'#8b949e',
-                   borderColor:C[m.type]||'#8b949e', size:11, paddingLeft:4,
-                   paddingRight:4, paddingTop:2, paddingBottom:2, borderRadius:3 } }
-        }); }catch(e){}
-      });
+      (d.markers||[]).forEach(m=>_ov({
+        name:'simpleAnnotation', extendData:m.text,
+        points:[{timestamp:m.timestamp, value:m.price}],
+        styles:{ text:{ color:'#fff', backgroundColor:C[m.type]||'#8b949e',
+                 borderColor:C[m.type]||'#8b949e', size:11, paddingLeft:4,
+                 paddingRight:4, paddingTop:2, paddingBottom:2, borderRadius:3 } }
+      }));
       const L = d.levels||{};
       const line = (val,color,label)=>{ if(val==null) return;
-        try{ kchart.createOverlay({ name:'priceLine', extendData:label,
-          points:[{value:val}],
-          styles:{ line:{ color:color, style:'dashed', size:1 } } }); }catch(e){}; };
+        _ov({ name:'priceLine', extendData:label, points:[{value:val}],
+          styles:{ line:{ color:color, style:'dashed', size:1 } } }); };
       line(L.resistance,'#ef5350','阻力'); line(L.support,'#26a69a','支撑');
       line(L.stop,'#d6a545','止损');
+    }
+    // 道氏：摆动点 + HH/HL/LH/LL 标注（H红/L绿）
+    function drawDow(dow){
+      (dow.swings||[]).forEach(s=>{
+        const up = s.kind==='H';
+        _ov({ name:'simpleAnnotation', extendData:s.label,
+          points:[{timestamp:s.t, value:s.price}],
+          styles:{ text:{ color: up?'#ef5350':'#26a69a', size:10, offset:[0, up?-8:8],
+                   backgroundColor:'transparent', borderColor:'transparent' } } });
+      });
+    }
+    // 缠论：笔（黄色折线，逐段连点）+ 中枢（半透明矩形）
+    function drawChan(chan){
+      const pts = chan.bi||[];
+      for(let i=0;i<pts.length-1;i++){
+        _ov({ name:'segment', lock:true,
+          points:[{timestamp:pts[i].t, value:pts[i].price},
+                  {timestamp:pts[i+1].t, value:pts[i+1].price}],
+          styles:{ line:{ color:'#e0b040', size:1 } } });
+      }
+      (chan.centers||[]).forEach(c=>{
+        _box(c.t1, c.t2, c.zg, c.zd, '#e0b040', true);          // 中枢：黄色虚线框
+        _ov({ name:'simpleAnnotation', extendData:'中枢',
+          points:[{timestamp:c.t1, value:c.zg}],
+          styles:{ text:{ color:'#e0b040', size:9, backgroundColor:'transparent',
+                   borderColor:'transparent' } } });
+      });
+    }
+    // SMC：BOS/CHoCH 横线 + 订单块矩形 + FVG缺口矩形
+    function drawSmc(smc){
+      (smc.events||[]).forEach(e=>{
+        const up = e.dir==='up', col = up?'#26a69a':'#ef5350';
+        _ov({ name:'segment', lock:true, extendData:`${e.type}${up?'↑':'↓'}`,
+          points:[{timestamp:e.t, value:e.level},{timestamp:smc.events[smc.events.length-1].t, value:e.level}],
+          styles:{ line:{ color:col, style: e.type==='CHoCH'?'dashed':'solid', size:1 } } });
+        _ov({ name:'simpleAnnotation', extendData:e.type,
+          points:[{timestamp:e.t, value:e.level}],
+          styles:{ text:{ color:'#fff', backgroundColor:col, borderColor:col, size:9,
+                   paddingLeft:3, paddingRight:3, paddingTop:1, paddingBottom:1, borderRadius:2 } } });
+      });
+      (smc.order_blocks||[]).forEach(o=>{
+        const col = o.dir==='bull' ? '#26a69a' : '#ef5350';
+        _box(o.t1,o.t2,o.high,o.low, col, false);               // 订单块：实线框
+        _ov({ name:'simpleAnnotation', extendData:o.dir==='bull'?'需求块':'供给块',
+          points:[{timestamp:o.t1, value:o.high}],
+          styles:{ text:{ color:col, size:9, backgroundColor:'transparent', borderColor:'transparent' } } });
+      });
+      (smc.fvgs||[]).forEach(f=>{                                // FVG：灰虚线框
+        _box(f.t1,f.t2,f.top,f.bottom, 'rgba(139,148,158,0.7)', true);
+      });
     }
     function gaugeColor(v){ return v>=60?'var(--up)':v<=40?'var(--down)':'var(--gold)'; }
     function structureCard(s){

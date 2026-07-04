@@ -240,6 +240,18 @@ def api_structure(market: str = "crypto", symbol: str = "BTC/USDT",
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
 
+@app.get("/api/overlays")
+def api_overlays(market: str = "crypto", symbol: str = "BTC/USDT",
+                 timeframe: str = "1d", limit: int = 300) -> JSONResponse:
+    """画在K线图上的结构图形：缠论(笔/中枢) / SMC(BOS-CHoCH/订单块/FVG) / 道氏(摆动点)。"""
+    try:
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=max(limit, 120))
+        from ..strategies.structure import structure_overlays
+        return JSONResponse(structure_overlays(df))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+
+
 @app.get("/api/signals")
 def api_signals(market: str = "crypto", symbol: str = "BTC/USDT",
                 timeframe: str = "1d", limit: int = 300) -> JSONResponse:

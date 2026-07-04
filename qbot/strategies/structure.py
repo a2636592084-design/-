@@ -180,15 +180,9 @@ def smc_structure(df: pd.DataFrame, zz: list[tuple[int, float, str]]) -> dict:
 
 
 # ============================================================ 缠论（简化）
-def chan_theory(df: pd.DataFrame) -> dict:
-    """缠论简化版：分型 → 笔 → 中枢。
-
-    - 分型：3根K里中间那根最高(顶分型)/最低(底分型)。
-    - 笔：相邻顶底分型交替相连，且间隔≥4根K（近似缠论"独立一笔至少5K"）。
-    - 中枢：连续3笔（4个转折点）价格区间的重叠 [ZD, ZG]，ZG>ZD 才成立。
-    """
+def _chan_bi(df: pd.DataFrame) -> list[tuple[int, float, str]]:
+    """缠论"笔"：分型交替相连，间隔≥4根K（近似缠论"独立一笔至少5K"）。"""
     fr = _fractals(df, k=1)                             # 3根K分型
-    # 笔：交替 + 间隔约束
     bi: list[tuple[int, float, str]] = []
     for idx, price, kind in fr:
         if not bi:
@@ -199,21 +193,39 @@ def chan_theory(df: pd.DataFrame) -> dict:
                 bi[-1] = (idx, price, kind)
         elif idx - bi[-1][0] >= 4:                     # 交替且间隔够 → 成一笔
             bi.append((idx, price, kind))
+    return bi
 
-    # 中枢：最近一组3笔（4个转折点）的重叠区间
-    center = None
-    if len(bi) >= 4:
-        last4 = bi[-4:]
-        prices = [p[1] for p in last4]
-        # 三段的高低：每相邻两点构成一段，取三段公共重叠
-        seg_hi = [max(prices[i], prices[i + 1]) for i in range(3)]
-        seg_lo = [min(prices[i], prices[i + 1]) for i in range(3)]
-        zg = min(seg_hi)                               # 重叠上沿
-        zd = max(seg_lo)                               # 重叠下沿
+
+def _chan_centers(bi: list[tuple[int, float, str]]) -> list[dict]:
+    """缠论中枢：连续3笔（4个转折点）价格区间的重叠 [ZD,ZG]，贪心取不重叠的多个。"""
+    centers = []
+    i = 0
+    while i + 3 <= len(bi) - 1:
+        pts = bi[i:i + 4]
+        prices = [p[1] for p in pts]
+        seg_hi = [max(prices[j], prices[j + 1]) for j in range(3)]
+        seg_lo = [min(prices[j], prices[j + 1]) for j in range(3)]
+        zg, zd = min(seg_hi), max(seg_lo)              # 重叠上沿 / 下沿
         if zg > zd:
-            price_now = float(df["close"].iloc[-1])
-            pos = ("上方" if price_now > zg else "下方" if price_now < zd else "内部")
-            center = {"zd": round(zd, 4), "zg": round(zg, 4), "pos": pos}
+            centers.append({"i1": pts[0][0], "i2": pts[3][0], "zd": zd, "zg": zg})
+            i += 3                                      # 跳过已用的3笔，找下一个中枢
+        else:
+            i += 1
+    return centers
+
+
+def chan_theory(df: pd.DataFrame) -> dict:
+    """缠论简化版：分型 → 笔 → 中枢。返回最近中枢与最后一笔方向。"""
+    fr = _fractals(df, k=1)
+    bi = _chan_bi(df)
+
+    center = None
+    cs = _chan_centers(bi)
+    if cs:
+        c = cs[-1]
+        price_now = float(df["close"].iloc[-1])
+        pos = ("上方" if price_now > c["zg"] else "下方" if price_now < c["zd"] else "内部")
+        center = {"zd": round(c["zd"], 4), "zg": round(c["zg"], 4), "pos": pos}
 
     # 结构分：最后一笔方向（顶→底为下、底→顶为上）
     chan_score = 0.0
@@ -274,4 +286,107 @@ def structure_report(df: pd.DataFrame, mult: float = 3.5) -> dict:
         "swings": [{"idx": p[0], "price": round(p[1], 4), "kind": p[2]} for p in zz[-8:]],
         "text": "".join(lines),
         "note": "结构分析为形态识别，最右侧结构待新K线确认，非未来预测。",
+    }
+
+
+# ============================================================ 画在K线图上的图形
+def structure_overlays(df: pd.DataFrame, mult: float = 3.5) -> dict:
+    """返回可直接画到K线图上的几何数据（带时间戳），供前端叠加缠论/SMC/道氏。
+
+    - dow: 摆动点（HH/HL/LH/LL 标注）
+    - chan: 笔（折线点）+ 中枢（矩形区）
+    - smc: 结构破坏(BOS/CHoCH 横线) + 订单块(矩形) + 未回补FVG(矩形)
+    """
+    if len(df) < 30:
+        return {"error": "K线太少"}
+    idx = df.index
+    n = len(df)
+
+    def ms(i: int) -> int:
+        return int(idx[i].timestamp() * 1000)
+
+    last_t = ms(n - 1)
+    zz = _pivots(df, mult=mult)
+
+    # 道氏摆动点 + HH/HL/LH/LL 标注
+    swings = []
+    prev_h = prev_l = None
+    for i, price, kind in zz:
+        if kind == "H":
+            lab = "HH" if (prev_h is not None and price > prev_h) else \
+                  ("LH" if prev_h is not None else "H")
+            prev_h = price
+        else:
+            lab = "HL" if (prev_l is not None and price > prev_l) else \
+                  ("LL" if prev_l is not None else "L")
+            prev_l = price
+        swings.append({"t": ms(i), "price": round(price, 4), "kind": kind, "label": lab})
+
+    # 缠论：笔（折线点）+ 中枢（矩形）
+    bi = _chan_bi(df)
+    bi_pts = [{"t": ms(i), "price": round(p, 4)} for i, p, _ in bi]
+    centers = [{"t1": ms(c["i1"]), "t2": ms(c["i2"]),
+                "zd": round(c["zd"], 4), "zg": round(c["zg"], 4)}
+               for c in _chan_centers(bi)][-4:]
+
+    # SMC 结构破坏事件（BOS/CHoCH 横线，记录 idx 以便找订单块）
+    events = []
+    bias = 0
+    last_high = last_low = None
+    for i, price, kind in zz:
+        if kind == "H":
+            if last_high is not None and price > last_high:
+                events.append({"i": i, "t": ms(i), "level": round(last_high, 4),
+                               "type": "CHoCH" if bias < 0 else "BOS", "dir": "up"})
+                bias = 1
+            last_high = price
+        else:
+            if last_low is not None and price < last_low:
+                events.append({"i": i, "t": ms(i), "level": round(last_low, 4),
+                               "type": "CHoCH" if bias > 0 else "BOS", "dir": "down"})
+                bias = -1
+            last_low = price
+
+    high = df["high"].to_numpy()
+    low = df["low"].to_numpy()
+    op = df["open"].to_numpy()
+    cl = df["close"].to_numpy()
+
+    # 订单块：最近一次结构破坏前的最后一根反向K线（矩形，延伸到最新）
+    order_blocks = []
+    if events:
+        ev = events[-1]
+        j = ev["i"]
+        want_bear_candle = ev["dir"] == "up"     # 上破前找阴线(需求区)
+        for t in range(min(j, n - 1), max(j - 12, 0), -1):
+            is_bear = cl[t] < op[t]
+            if is_bear == want_bear_candle:
+                order_blocks.append({
+                    "t1": ms(t), "t2": last_t,
+                    "low": round(float(low[t]), 4), "high": round(float(high[t]), 4),
+                    "dir": "bull" if want_bear_candle else "bear"})
+                break
+
+    # FVG：最近若干个未回补的公允价值缺口（矩形，从缺口延伸到最新）
+    fvgs = []
+    for i in range(2, n):
+        if low[i] > high[i - 2]:                 # 向上跳空
+            bottom, top = float(high[i - 2]), float(low[i])
+            filled = (low[i + 1:] <= bottom).any() if i + 1 < n else False
+            if not filled:
+                fvgs.append({"t1": ms(i - 2), "t2": last_t, "dir": "bull",
+                             "bottom": round(bottom, 4), "top": round(top, 4)})
+        elif high[i] < low[i - 2]:               # 向下跳空
+            bottom, top = float(high[i]), float(low[i - 2])
+            filled = (high[i + 1:] >= top).any() if i + 1 < n else False
+            if not filled:
+                fvgs.append({"t1": ms(i - 2), "t2": last_t, "dir": "bear",
+                             "bottom": round(bottom, 4), "top": round(top, 4)})
+
+    for e in events:
+        e.pop("i", None)
+    return {
+        "dow": {"swings": swings},
+        "chan": {"bi": bi_pts, "centers": centers},
+        "smc": {"events": events[-5:], "order_blocks": order_blocks, "fvgs": fvgs[-5:]},
     }
