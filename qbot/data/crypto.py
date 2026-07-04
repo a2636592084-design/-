@@ -41,9 +41,9 @@ def fetch_okx_ohlcv(
 
     exchange = ccxt.okx({"enableRateLimit": True})
     _apply_proxy(exchange)
-    if demo:
-        # OKX 模拟盘：请求头带 x-simulated-trading
-        exchange.headers = {"x-simulated-trading": "1"}
+    # 注意：行情/K线是公开市场数据，永远走真实市场端点。
+    # 绝不带 x-simulated-trading 头——OKX 模拟盘的历史K线是假数据(会污染回测)。
+    # demo 只影响下单路由(见 broker/okx.py)，与拉行情无关。故此处忽略 demo 参数。
 
     log.info("从 OKX 拉取 %s %s (目标 %d 根)", symbol, timeframe, limit)
     # OKX 单次上限约 300 根，超过则向历史分页回溯拼接

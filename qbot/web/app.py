@@ -95,6 +95,13 @@ def api_scan(
             target = _f(pos.iloc[-1])
             prev = _f(pos.iloc[-2]) if len(pos) > 1 else 0.0
             a = adx(df)[0]
+            # 共振策略额外给出"共振分"，让用户看到多指标合力强弱
+            score = None
+            if hasattr(strat, "explain"):
+                try:
+                    score = _f(strat.explain(df).get("score"), default=None)
+                except Exception:  # noqa: BLE001
+                    score = None
             rows.append({
                 "symbol": sym,
                 "price": _f(df["close"].iloc[-1]),
@@ -105,6 +112,7 @@ def api_scan(
                 "flipped": abs(target - prev) > 1e-9,   # 信号刚发生变化 → 重点关注
                 "adx": _f(a.iloc[-1]),
                 "rsi": _f(rsi(df["close"]).iloc[-1], default=50.0),
+                "score": score,
                 "date": str(df.index[-1].date()),
                 "bars": len(df),
             })

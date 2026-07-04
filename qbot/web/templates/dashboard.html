@@ -129,7 +129,7 @@
       <table class="scan num" id="scanTable">
         <thead><tr>
           <th>标的</th><th>最新价</th><th>日涨跌</th><th>信号</th>
-          <th>ADX</th><th>RSI</th><th>数据</th>
+          <th>共振分</th><th>ADX</th><th>RSI</th><th>数据</th>
         </tr></thead>
         <tbody id="scanBody"></tbody>
       </table>
@@ -246,15 +246,21 @@
         if(rows.error){ s_status.textContent='错误: '+rows.error; return; }
         scanBody.innerHTML = rows.map(r=>{
           if(r.error) return `<tr><td class="sym">${r.symbol}</td>
-            <td colspan="6" style="text-align:left;color:var(--down)">拉取失败: ${r.error}</td></tr>`;
+            <td colspan="7" style="text-align:left;color:var(--down)">拉取失败: ${r.error}</td></tr>`;
           const chg = r.change>=0 ? `<span class="pos">+${pct(r.change)}</span>` : `<span class="neg">${pct(r.change)}</span>`;
           const flip = r.flipped ? '<span class="flipbadge">▲信号变化</span>' : '';
           const adxCls = r.adx>=25 ? 'pos' : (r.adx<20 ? 'muted' : '');
+          let scoreCell = '<span style="color:var(--muted)">—</span>';
+          if(r.score!=null){
+            const cls = r.score>0.2?'pos':(r.score<-0.2?'neg':'');
+            scoreCell = `<span class="${cls}">${r.score>=0?'+':''}${r.score.toFixed(2)}</span>`;
+          }
           return `<tr class="${r.flipped?'flip':''}">
             <td class="sym">${r.symbol}${flip}</td>
             <td>${r.price.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
             <td>${chg}</td>
             <td style="text-align:right">${sigCell(r.target)}</td>
+            <td>${scoreCell}</td>
             <td class="${adxCls}">${r.adx.toFixed(1)}</td>
             <td>${r.rsi.toFixed(1)}</td>
             <td style="color:var(--muted)">${r.date} · ${r.bars}根</td>

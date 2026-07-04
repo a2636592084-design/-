@@ -27,6 +27,8 @@ PARAM_GRIDS: dict[str, dict[str, list]] = {
     "bollinger_reversion": {"adx_max": [18, 20, 25], "b_low": [0.02, 0.05, 0.1]},
     "vwap_momentum": {"vwma_n": [10, 20, 30]},
     "regime_switch": {"adx_trend": [22, 25, 28], "adx_range": [18, 20]},
+    "confluence": {"adx_min": [18, 20, 25], "enter_thr": [0.4, 0.5, 0.6],
+                   "exit_thr": [-0.2, 0.0]},
 }
 
 
