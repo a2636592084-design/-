@@ -240,6 +240,18 @@ def api_structure(market: str = "crypto", symbol: str = "BTC/USDT",
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
 
 
+@app.get("/api/resonance")
+def api_resonance(market: str = "crypto", symbol: str = "BTC/USDT",
+                  timeframe: str = "1d", limit: int = 300) -> JSONResponse:
+    """共振面板：~19 个指标对当前一根的多/空/中投票 + 多空计数。"""
+    try:
+        df = _terminal_ohlcv(market, symbol, timeframe, limit=max(limit, 120))
+        from ..strategies.resonance import resonance_votes
+        return JSONResponse(resonance_votes(df))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+
+
 @app.get("/api/overlays")
 def api_overlays(market: str = "crypto", symbol: str = "BTC/USDT",
                  timeframe: str = "1d", limit: int = 300) -> JSONResponse:

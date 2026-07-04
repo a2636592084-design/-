@@ -85,6 +85,56 @@
       gap:3px; cursor:pointer; white-space:nowrap; }
     .live-dot { color:var(--up); animation:pulse 1.4s ease-in-out infinite; margin-left:4px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+    /* 多空比条 */
+    .reso-bar { display:flex; align-items:center; gap:10px; position:relative;
+      background:var(--panel); border:1px solid var(--line); border-radius:8px;
+      padding:6px 12px; margin-bottom:6px; }
+    .reso-side { font-size:13px; white-space:nowrap; } .reso-side b { font-size:15px; }
+    .reso-track { flex:1; height:8px; border-radius:5px; position:relative;
+      background:linear-gradient(90deg, var(--down) 0%, #6b7280 50%, var(--up) 100%); min-width:120px; }
+    .reso-knob { position:absolute; top:50%; width:14px; height:14px; border-radius:50%;
+      background:#fff; border:2px solid var(--bg); transform:translate(-50%,-50%); left:50%;
+      box-shadow:0 0 4px rgba(0,0,0,.5); transition:left .3s; }
+    .reso-verdict { font-size:13px; font-weight:700; border:1px solid var(--gold);
+      color:var(--gold); border-radius:6px; padding:2px 8px; white-space:nowrap; }
+    .reso-req { font-size:11.5px; color:var(--muted); white-space:nowrap; }
+    .reso-gear { background:transparent; border:1px solid var(--line); color:var(--fg);
+      border-radius:6px; padding:3px 8px; font-size:12px; cursor:pointer; white-space:nowrap; }
+    .reso-hint { font-size:11px; color:var(--muted); }
+    .reso-detail { display:none; position:absolute; top:100%; left:0; right:0; z-index:40;
+      margin-top:4px; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+      padding:8px 12px; box-shadow:0 8px 24px rgba(0,0,0,.5);
+      column-count:3; column-gap:16px; max-height:320px; overflow:auto; }
+    .reso-bar:hover .reso-detail { display:block; }
+    .rd-grp { color:var(--gold); font-size:11px; font-weight:700; margin:6px 0 2px;
+      break-inside:avoid; }
+    .rd-row { display:flex; justify-content:space-between; align-items:center; gap:8px;
+      font-size:12px; padding:2px 0; break-inside:avoid; }
+    .rv { font-size:11px; font-weight:700; border-radius:4px; padding:1px 6px; }
+    .rv.b { color:var(--up); background:rgba(38,166,154,.15); }
+    .rv.s { color:var(--down); background:rgba(239,83,80,.15); }
+    .rv.m { color:var(--muted); background:rgba(139,148,158,.15); }
+    /* 共振设置弹窗 */
+    .reso-modal { max-width:520px; }
+    .reso-sec { padding:12px 0; border-top:1px solid var(--line); }
+    .reso-sec:first-of-type { border-top:none; }
+    .reso-sec-t { font-size:14px; font-weight:700; }
+    .reso-sec-d { font-size:12px; color:var(--muted); margin:4px 0 8px; }
+    .reso-pct { color:var(--accent); font-weight:700; }
+    .reso-strict-btns { display:flex; gap:6px; }
+    .reso-strict-btns button { flex:1; background:var(--bg); border:1px solid var(--line);
+      color:var(--fg); border-radius:6px; padding:8px; cursor:pointer; font-size:13px; }
+    .reso-strict-btns button.on { background:var(--accent); color:#04101f; font-weight:700; }
+    .reso-req2 { font-size:12px; color:var(--muted); margin-top:8px; }
+    .reso-actions { display:flex; gap:6px; margin:6px 0 8px; }
+    .reso-actions button { background:transparent; border:1px solid var(--line); color:var(--fg);
+      border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px; }
+    .reso-ind-list { max-height:300px; overflow:auto; }
+    .reso-ind { display:flex; align-items:center; gap:8px; padding:6px 4px;
+      border-bottom:1px solid rgba(255,255,255,.04); cursor:pointer; }
+    .reso-ind .rg { font-size:10px; color:var(--muted); border:1px solid var(--line);
+      border-radius:4px; padding:1px 5px; }
+    .reso-ind .rn { flex:1; font-size:13px; }
     #kline { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
     /* 右侧分析 */
     .an-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
@@ -236,8 +286,20 @@
             <label class="chk"><input type="checkbox" id="t_chan"><b style="color:#e0b040">缠论</b></label>
             <label class="chk"><input type="checkbox" id="t_smc">SMC</label>
             <label class="chk"><input type="checkbox" id="t_dow">道氏</label>
+            <label class="chk"><input type="checkbox" id="t_reso">⚡共振比</label>
           </div>
           <span class="t_quote" id="t_quote"></span>
+        </div>
+        <!-- 多空比条：开启“共振比”后出现，悬停展开逐指标明细 -->
+        <div id="reso_bar" class="reso-bar" style="display:none">
+          <span class="reso-side" style="color:var(--down)">空 <b id="reso_bear">0</b></span>
+          <div class="reso-track"><div class="reso-knob" id="reso_knob"></div></div>
+          <span class="reso-side" style="color:var(--up)"><b id="reso_bull">0</b> 多</span>
+          <span id="reso_verdict" class="reso-verdict">分歧</span>
+          <span class="reso-req" id="reso_req"></span>
+          <button class="reso-gear" onclick="openResoSettings()" title="共振面板设置">⚙ 设置</button>
+          <span class="reso-hint">悬停看明细</span>
+          <div id="reso_detail" class="reso-detail"></div>
         </div>
         <div id="kline" style="height:520px"></div>
       </div>
@@ -264,6 +326,33 @@
       <input id="searchInput" placeholder="搜索：如 BTC、ETH、600519" autocomplete="off">
       <div id="searchResults" class="results"></div>
       <div class="results-foot" id="searchFoot"></div>
+    </div>
+  </div>
+
+  <!-- 共振面板设置弹窗 -->
+  <div id="resoModal" class="modal-mask" onclick="if(event.target===this)closeResoSettings()">
+    <div class="modal reso-modal">
+      <div class="modal-head"><b>⚡ 共振面板设置</b>
+        <button class="esc" onclick="closeResoSettings()">Esc</button></div>
+      <div class="reso-sec">
+        <div class="reso-sec-t">共识严格度 <span id="reso_strict_pct" class="reso-pct">70%</span></div>
+        <div class="reso-sec-d">控制多少指标同向时才判定为“共振”。</div>
+        <div class="reso-strict-btns">
+          <button data-s="0.55">宽松</button>
+          <button data-s="0.7" class="on">标准</button>
+          <button data-s="0.85">严格</button>
+        </div>
+        <div class="reso-req2" id="reso_req2"></div>
+      </div>
+      <div class="reso-sec">
+        <div class="reso-sec-t">指标清单 <span id="reso_enabled_n" style="float:right;color:var(--muted);font-size:12px"></span></div>
+        <div class="reso-actions">
+          <button onclick="resoAll(true)">全部启用</button>
+          <button onclick="resoAll(false)">全部关闭</button>
+          <button onclick="resoDefault()">↺ 恢复默认</button>
+        </div>
+        <div id="reso_ind_list" class="reso-ind-list"></div>
+      </div>
     </div>
   </div>
 
@@ -571,6 +660,7 @@
       });
       ['t_sig','t_chan','t_smc','t_dow'].forEach(id=>
         document.getElementById(id).addEventListener('change', drawSignals));
+      document.getElementById('t_reso').addEventListener('change', loadReso);
       // 向左滚动到头 → 按需加载更早的历史K线（加密支持，其它市场返回空即停止）
       kchart.setLoadMoreDataCallback && kchart.setLoadMoreDataCallback(loadMoreKline);
       kchart.setLoadDataCallback && kchart.setLoadDataCallback(loadMoreKline);
@@ -591,6 +681,7 @@
         const last = d.klines[d.klines.length-1];
         if(last) t_quote.innerHTML = `收 <b>${last.close}</b>`;
         drawSignals();
+        loadReso();
         startLive();
       }catch(e){ if(tok===curTok()) t_quote.textContent='请求失败'; }
     }
@@ -812,6 +903,94 @@
           <div class="an-src">来源：${d.source}</div>
         </div>`;
     }
+    /* ---------- 共振面板（多空比条 + 逐指标明细 + 严格度设置） ---------- */
+    let RESO_VOTES=null;
+    function resoCfg(){
+      let c=null; try{ c=JSON.parse(localStorage.getItem('reso_cfg')); }catch(e){}
+      if(!c || typeof c!=='object') c={strictness:0.7, disabled:[]};
+      c.strictness = c.strictness || 0.7;
+      c.disabled = new Set(c.disabled||[]);
+      return c;
+    }
+    function saveResoCfg(c){
+      localStorage.setItem('reso_cfg', JSON.stringify({strictness:c.strictness, disabled:[...c.disabled]}));
+    }
+    async function loadReso(){
+      const bar=document.getElementById('reso_bar');
+      if(!document.getElementById('t_reso').checked){ bar.style.display='none'; return; }
+      const tok=curTok();
+      const p=new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf});
+      let d; try{ d=await (await fetch('/api/resonance?'+p)).json(); }catch(e){ return; }
+      if(tok!==curTok() || !d || d.error){ return; }
+      RESO_VOTES=d; renderReso();
+    }
+    function renderReso(){
+      const bar=document.getElementById('reso_bar');
+      if(!document.getElementById('t_reso').checked || !RESO_VOTES){ bar.style.display='none'; return; }
+      bar.style.display='flex';
+      const cfg=resoCfg();
+      const items=RESO_VOTES.indicators.filter(it=>!cfg.disabled.has(it.key));
+      const bull=items.filter(it=>it.vote>0).length;
+      const bear=items.filter(it=>it.vote<0).length;
+      const need=Math.max(1, Math.ceil(cfg.strictness*Math.max(items.length,1)));
+      const verdict = bull>=need?'共振多':(bear>=need?'共振空':'分歧');
+      const vc = verdict==='共振多'?'var(--up)':verdict==='共振空'?'var(--down)':'var(--gold)';
+      document.getElementById('reso_bull').textContent=bull;
+      document.getElementById('reso_bear').textContent=bear;
+      const ratio=(bull+bear)?bull/(bull+bear):0.5;
+      document.getElementById('reso_knob').style.left=(ratio*100)+'%';
+      const vEl=document.getElementById('reso_verdict');
+      vEl.textContent=verdict; vEl.style.color=vc; vEl.style.borderColor=vc;
+      document.getElementById('reso_req').textContent=`需 ${need}/${items.length} 同向 · 中性${items.length-bull-bear}`;
+      const chip=v=>`<span class="rv ${v>0?'b':v<0?'s':'m'}">${v>0?'多':v<0?'空':'中'}</span>`;
+      const groups={};
+      items.forEach(it=>{ (groups[it.group]=groups[it.group]||[]).push(it); });
+      document.getElementById('reso_detail').innerHTML = Object.entries(groups).map(([g,arr])=>
+        `<div class="rd-grp">${g}（${arr.filter(x=>x.vote>0).length}多/${arr.filter(x=>x.vote<0).length}空）</div>`
+        + arr.map(it=>`<div class="rd-row"><span>${it.name}</span>${chip(it.vote)}</div>`).join('')
+      ).join('');
+    }
+    function openResoSettings(){
+      const cfg=resoCfg();
+      document.querySelectorAll('.reso-strict-btns button').forEach(b=>
+        b.classList.toggle('on', Math.abs(+b.dataset.s-cfg.strictness)<1e-6));
+      document.getElementById('reso_strict_pct').textContent=Math.round(cfg.strictness*100)+'%';
+      renderResoIndList();
+      document.getElementById('resoModal').classList.add('on');
+    }
+    function closeResoSettings(){ document.getElementById('resoModal').classList.remove('on'); }
+    function renderResoIndList(){
+      const cfg=resoCfg();
+      const all=RESO_VOTES?RESO_VOTES.indicators:[];
+      const enabled=all.filter(it=>!cfg.disabled.has(it.key)).length;
+      const need=Math.max(1, Math.ceil(cfg.strictness*Math.max(enabled,1)));
+      document.getElementById('reso_enabled_n').textContent='已启用 '+enabled+'/'+all.length;
+      document.getElementById('reso_req2').textContent=`当前需要至少 ${need}/${enabled} 个启用指标同向，才判定为共振。`;
+      document.getElementById('reso_ind_list').innerHTML=all.map(it=>{
+        const on=!cfg.disabled.has(it.key);
+        const vt=it.vote>0?'<span class="rv b">多</span>':it.vote<0?'<span class="rv s">空</span>':'<span class="rv m">中</span>';
+        return `<label class="reso-ind"><span class="rg">${it.group}</span><span class="rn">${it.name}</span>
+          ${vt}<input type="checkbox" ${on?'checked':''} data-key="${it.key}"></label>`;
+      }).join('');
+      document.querySelectorAll('#reso_ind_list input').forEach(inp=>inp.onchange=()=>{
+        const c=resoCfg();
+        if(inp.checked) c.disabled.delete(inp.dataset.key); else c.disabled.add(inp.dataset.key);
+        saveResoCfg(c); renderResoIndList(); renderReso();
+      });
+    }
+    function resoAll(on){
+      const c=resoCfg();
+      c.disabled = on ? new Set() : new Set((RESO_VOTES?RESO_VOTES.indicators:[]).map(it=>it.key));
+      saveResoCfg(c); renderResoIndList(); renderReso();
+    }
+    function resoDefault(){ localStorage.removeItem('reso_cfg'); openResoSettings(); renderReso(); }
+    document.querySelectorAll('.reso-strict-btns button').forEach(b=>b.onclick=()=>{
+      const c=resoCfg(); c.strictness=+b.dataset.s; saveResoCfg(c);
+      document.querySelectorAll('.reso-strict-btns button').forEach(x=>x.classList.toggle('on',x===b));
+      document.getElementById('reso_strict_pct').textContent=Math.round(c.strictness*100)+'%';
+      renderResoIndList(); renderReso();
+    });
+
     /* 搜索弹窗 */
     let searchMkt='crypto', searchTimer=null;
     const MKT_NAME={crypto:'加密',ashare:'A股',us:'美股',hk:'港股',forex:'外汇',futures:'期货'};
@@ -841,7 +1020,7 @@
     document.getElementById('searchInput').addEventListener('input',()=>{
       clearTimeout(searchTimer); searchTimer=setTimeout(doSearch,300);
     });
-    document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSearch(); });
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeSearch(); closeResoSettings(); } });
 
     loadStrategies();
   </script>
