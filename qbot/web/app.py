@@ -131,7 +131,7 @@ _OHLCV_CACHE: dict = {}          # (market,symbol,tf) -> (ts, df)
 _CACHE_TTL = 30.0                # 30秒内切回同一标的/周期直接命中，秒开
 
 
-def _terminal_ohlcv(market: str, symbol: str, timeframe: str, limit: int = 300):
+def _terminal_ohlcv(market: str, symbol: str, timeframe: str, limit: int = 500):
     """终端专用带缓存的行情拉取（K线与分析共用一次，减少 OKX 请求、提速）。"""
     key = (market, symbol, timeframe)
     hit = _OHLCV_CACHE.get(key)
@@ -144,21 +144,40 @@ def _terminal_ohlcv(market: str, symbol: str, timeframe: str, limit: int = 300):
     return df
 
 
-@app.get("/api/klines")
-def api_klines(market: str = "crypto", symbol: str = "BTC/USDT",
-               timeframe: str = "1d", limit: int = 300) -> JSONResponse:
-    """行情终端K线：返回 KLineChart 需要的 [{timestamp,open,high,low,close,volume}]。"""
-    try:
-        df = _terminal_ohlcv(market, symbol, timeframe, limit=limit)
-    except Exception as e:  # noqa: BLE001
-        return JSONResponse({"error": str(e)[:150]}, status_code=502)
-    out = [{
+def _df_to_klines(df) -> list:
+    return [{
         "timestamp": int(ts.timestamp() * 1000),
         "open": round(float(r.open), 6), "high": round(float(r.high), 6),
         "low": round(float(r.low), 6), "close": round(float(r.close), 6),
         "volume": round(float(r.volume), 4),
     } for ts, r in df.iterrows()]
-    return JSONResponse({"klines": out})
+
+
+@app.get("/api/klines")
+def api_klines(market: str = "crypto", symbol: str = "BTC/USDT",
+               timeframe: str = "1d", limit: int = 500,
+               live: int = 0, before: int = 0) -> JSONResponse:
+    """行情终端K线：返回 KLineChart 需要的 [{timestamp,open,high,low,close,volume}]。
+
+    live=1 只取最近几根、绕过缓存（用于实时刷新，让最后一根随行情跳动）。
+    before=<毫秒时间戳> 取更早的一页历史（图表向左滚动时按需加载更多，仅加密支持）。
+    """
+    try:
+        if before and market == "crypto":
+            # 向左加载更多历史（早于 before 的一页）
+            from ..data.crypto import fetch_okx_ohlcv_before
+            df = fetch_okx_ohlcv_before(symbol, timeframe, before_ms=before, limit=300)
+            return JSONResponse({"klines": _df_to_klines(df)})
+        if before:                       # 非加密暂不支持历史分页，返回空表示到头
+            return JSONResponse({"klines": []})
+        if live:
+            # 实时刷新：绕过缓存，拉最近几根真实行情
+            df = get_ohlcv(market, symbol, timeframe, limit=3, fallback_synthetic=False)
+        else:
+            df = _terminal_ohlcv(market, symbol, timeframe, limit=limit)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:150]}, status_code=502)
+    return JSONResponse({"klines": _df_to_klines(df)})
 
 
 @app.get("/api/search")

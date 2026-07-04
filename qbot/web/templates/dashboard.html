@@ -76,7 +76,11 @@
     .tf-group button { background:transparent; border:none; color:var(--muted); padding:5px 10px;
       font-size:12.5px; cursor:pointer; border-radius:6px; }
     .tf-group button.on { background:var(--accent); color:#04101f; font-weight:600; }
+    .tf-more { background:var(--panel); border:1px solid var(--line); color:var(--fg);
+      border-radius:8px; padding:5px 6px; font-size:12.5px; cursor:pointer; }
     .t_quote { color:var(--muted); font-size:12px; }
+    .live-dot { color:var(--up); animation:pulse 1.4s ease-in-out infinite; margin-left:4px; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
     #kline { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
     /* 右侧分析 */
     .an-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
@@ -208,8 +212,17 @@
             <span class="t_code" id="t_symcode">BTC/USDT</span> 🔍</button>
           <div class="tf-group" id="tf_group">
             <button data-tf="15m">15分</button><button data-tf="1h">1时</button>
+            <button data-tf="4h">4时</button>
             <button data-tf="1d" class="on">日线</button><button data-tf="1w">周线</button>
           </div>
+          <select id="tf_more" class="tf-more" title="更多周期">
+            <option value="1m">1分</option><option value="5m">5分</option>
+            <option value="15m">15分</option><option value="30m">30分</option>
+            <option value="1h">1时</option><option value="2h">2时</option>
+            <option value="4h">4时</option><option value="6h">6时</option>
+            <option value="12h">12时</option><option value="1d" selected>日线</option>
+            <option value="1w">周线</option><option value="1M">月线</option>
+          </select>
           <div class="tf-group" id="sub_group">
             <button data-ind="VOL" class="on">成交量</button><button data-ind="MACD">MACD</button>
             <button data-ind="RSI">RSI</button><button data-ind="CCI">CCI</button>
@@ -344,7 +357,7 @@
     }
 
     const ALL_TABS = ['terminal','bt','scan','paper','ashare','crypto'];
-    let pfTimer = null;
+    let pfTimer = null, liveTimer = null;
     function switchTab(t){
       ALL_TABS.forEach(x=>{
         const v = document.getElementById('view-'+x);
@@ -353,6 +366,7 @@
         if(b) b.classList.toggle('active', x===t);
       });
       clearInterval(pfTimer); pfTimer=null;
+      if(t!=='terminal'){ clearInterval(liveTimer); liveTimer=null; }  // 离开终端停实时刷新
       if(['paper','ashare','crypto'].includes(t)){
         loadPortfolio(t);
         pfTimer = setInterval(()=>loadPortfolio(t), 30000);  // 每30秒刷新
@@ -523,6 +537,12 @@
 
     /* ---------- 行情终端 ---------- */
     let kchart=null, subPaneId=null, T={market:'crypto',symbol:'BTC/USDT',name:'比特币',tf:'1d',sub:'VOL'};
+    function setTF(tf){
+      T.tf = tf;
+      tf_group.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x.dataset.tf===tf));
+      const sel=document.getElementById('tf_more'); if(sel) sel.value = tf;
+      loadKline(); loadAnalysis();
+    }
     function initTerminal(){
       if(kchart) { loadKline(); return; }
       kchart = klinecharts.init('kline', {
@@ -530,30 +550,64 @@
       });
       kchart.createIndicator('MA', true, {id:'candle_pane'});
       subPaneId = kchart.createIndicator('VOL');
-      // 周期/副图切换
-      tf_group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-        tf_group.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
-        b.classList.add('on'); T.tf=b.dataset.tf; loadKline(); loadAnalysis();
-      });
+      // 周期切换：快捷按钮 + “更多”下拉，二者联动
+      tf_group.querySelectorAll('button').forEach(b=>b.onclick=()=>setTF(b.dataset.tf));
+      document.getElementById('tf_more').addEventListener('change', e=>setTF(e.target.value));
       sub_group.querySelectorAll('button').forEach(b=>b.onclick=()=>{
         sub_group.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
         b.classList.add('on'); T.sub=b.dataset.ind;
         if(subPaneId) kchart.createIndicator(T.sub, false, {id:subPaneId});
       });
       document.getElementById('t_sig').addEventListener('change', drawSignals);
+      // 向左滚动到头 → 按需加载更早的历史K线（加密支持，其它市场返回空即停止）
+      kchart.setLoadMoreDataCallback && kchart.setLoadMoreDataCallback(loadMoreKline);
+      kchart.setLoadDataCallback && kchart.setLoadDataCallback(loadMoreKline);
       loadKline(); loadAnalysis();
     }
     async function loadKline(){
+      clearInterval(liveTimer); liveTimer=null;
       t_quote.textContent = '⏳ 加载中…';
-      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:300});
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,limit:500});
       try{
         const d = await (await fetch('/api/klines?'+p)).json();
         if(d.error){ t_quote.textContent='拉取失败: '+d.error; return; }
-        kchart.applyNewData(d.klines);
+        kchart.applyNewData(d.klines, true);   // true=允许继续向左加载更多历史
         const last = d.klines[d.klines.length-1];
         if(last) t_quote.innerHTML = `收 <b>${last.close}</b>`;
         drawSignals();
+        startLive();
       }catch(e){ t_quote.textContent='请求失败'; }
+    }
+    // 向左加载更多历史：兼容 KLineChart v9 两种回调签名
+    async function loadMoreKline(arg1, arg2){
+      // 老签名: (timestamp, callback)；新签名: ({type,data,callback})
+      let ts, cb;
+      if(typeof arg1==='object' && arg1){ ts = arg1.data?.timestamp; cb = arg1.callback; }
+      else { ts = arg1; cb = arg2; }
+      if(T.market!=='crypto' || !ts){ if(cb) cb([]); return; }
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,before:ts});
+      try{
+        const d = await (await fetch('/api/klines?'+p)).json();
+        const more = (d.klines||[]);
+        if(cb) cb(more);
+        else if(more.length) kchart.applyMoreData(more, more.length>=1);
+      }catch(e){ if(cb) cb([]); }
+    }
+    // 实时刷新：定时拉最近几根真实行情，只更新/追加最后一根，不打断缩放与滚动
+    function startLive(){
+      clearInterval(liveTimer); liveTimer=null;
+      if(T.market==='synthetic') return;       // 合成演示数据不实时
+      liveTimer = setInterval(liveTick, 12000); // 每 12 秒
+    }
+    async function liveTick(){
+      if(document.hidden || !kchart) return;
+      const p = new URLSearchParams({market:T.market,symbol:T.symbol,timeframe:T.tf,live:1});
+      let d;
+      try{ d = await (await fetch('/api/klines?'+p)).json(); }catch(e){ return; }
+      if(!d || d.error || !(d.klines||[]).length) return;
+      d.klines.forEach(b=>{ try{ kchart.updateData(b); }catch(e){} });
+      const last = d.klines[d.klines.length-1];
+      if(last) t_quote.innerHTML = `收 <b>${last.close}</b> <span class="live-dot">●实时</span>`;
     }
     async function drawSignals(){
       try{ kchart.removeOverlay(); }catch(e){}       // 清掉旧标注

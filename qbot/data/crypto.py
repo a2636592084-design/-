@@ -68,6 +68,28 @@ def fetch_okx_ohlcv(
     return df.tail(limit)
 
 
+def fetch_okx_ohlcv_before(
+    symbol: str = "BTC/USDT",
+    timeframe: str = "1d",
+    before_ms: int = 0,
+    limit: int = 300,
+) -> pd.DataFrame:
+    """拉取早于 before_ms 时间戳的一页历史K线（供图表向左滚动加载更多）。"""
+    import ccxt
+
+    exchange = ccxt.okx({"enableRateLimit": True})
+    _apply_proxy(exchange)
+    # OKX: after=返回早于该时间戳的记录（向历史回溯）
+    params = {"after": int(before_ms)} if before_ms else {}
+    rows = exchange.fetch_ohlcv(symbol, timeframe=timeframe,
+                                limit=min(limit, 300), params=params)
+    if before_ms:
+        rows = [r for r in rows if r[0] < before_ms]
+    df = pd.DataFrame(rows, columns=["ts", "open", "high", "low", "close", "volume"])
+    df["ts"] = pd.to_datetime(df["ts"], unit="ms")
+    return df.drop_duplicates(subset="ts").set_index("ts").sort_index()
+
+
 def list_okx_symbols(quote: str = "USDT") -> list[str]:
     """列出 OKX 上所有以某计价货币结算的现货标的（用于"全市场"扫描）。"""
     import ccxt
