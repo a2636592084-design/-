@@ -33,6 +33,8 @@ def main() -> None:
     p.add_argument("--poll", type=int, default=60, help="轮询间隔秒")
     p.add_argument("--atr-stop", type=float, default=None,
                    help="叠加 ATR 移动止损倍数，如 3.0（默认关闭）")
+    p.add_argument("--notify", action="store_true",
+                   help="信号变化时推送通知（渠道读 .env）")
     p.add_argument("--once", action="store_true", help="只跑一个 tick 后退出（调试用）")
     p.add_argument("--i-understand-the-risk", action="store_true",
                    help="真实资金必需的显式确认")
@@ -59,6 +61,7 @@ def main() -> None:
         market=args.market, symbol=args.symbol, strategy=strat,
         broker=broker, risk=risk, timeframe=args.timeframe,
         poll_seconds=args.poll, demo=demo, atr_stop_mult=args.atr_stop,
+        notify=args.notify,
     )
 
     if args.once:

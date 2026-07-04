@@ -119,6 +119,7 @@
       <div class="field"><label>ATR止损</label><input id="s_atrstop" placeholder="关" size="4"></div>
       <div class="field"><label>&nbsp;</label><button class="go" id="scan">扫描</button></div>
       <div class="field"><label class="chk"><input type="checkbox" id="s_auto">自动刷新60秒</label></div>
+      <div class="field"><label class="chk"><input type="checkbox" id="s_notify" checked>🔔 信号变化时通知我</label></div>
     </div>
     <div class="status" id="s_status">
       填入标的、选策略，点"扫描"。系统对每个标的算出<b>当前该买/该卖/空仓</b>。
@@ -196,6 +197,33 @@
       finally { run.disabled=false; }
     }
 
+    /* ---------- 通知（浏览器弹窗 + 声音）---------- */
+    function beep(){
+      try {
+        const ctx = new (window.AudioContext||window.webkitAudioContext)();
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type='sine'; o.frequency.value=880;
+        g.gain.setValueAtTime(0.001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime+0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.4);
+        o.start(); o.stop(ctx.currentTime+0.42);
+      } catch(e){}
+    }
+    function notifyFlips(rows){
+      if(!document.getElementById('s_notify').checked) return;
+      const flips = rows.filter(r=>r.flipped && !r.error);
+      if(!flips.length) return;
+      beep();
+      const body = flips.map(r=>{
+        const s = r.target>0.5?'买入':(r.target<-0.5?'做空':'空仓');
+        return `${r.symbol} → ${s}`;
+      }).join('\n');
+      if('Notification' in window && Notification.permission==='granted'){
+        new Notification(`🔔 ${flips.length} 个信号变化`, {body});
+      }
+    }
+
     /* ---------- 扫描 ---------- */
     function sigCell(t){
       if(t>0.5) return '<span class="sig buy">🟢 买入 / 持有</span>';
@@ -204,6 +232,11 @@
     }
     async function runScan(){
       scan.disabled = true; s_status.textContent='扫描中…';
+      // 首次扫描时请求桌面通知授权
+      if('Notification' in window && Notification.permission==='default'
+         && document.getElementById('s_notify').checked){
+        Notification.requestPermission();
+      }
       const syms = s_symbols.value.split(/[,\n]/).map(x=>x.trim()).filter(Boolean).join(',');
       const p = new URLSearchParams({market:s_market.value, symbols:syms,
         strategy:s_strategy.value, timeframe:s_timeframe.value});
@@ -227,6 +260,7 @@
             <td style="color:var(--muted)">${r.date} · ${r.bars}根</td>
           </tr>`;
         }).join('');
+        notifyFlips(rows);
         const flips = rows.filter(r=>r.flipped).length;
         s_status.textContent = `完成 · ${rows.length} 个标的 · ${flips} 个信号变化 · ${new Date().toLocaleTimeString()}`;
       } catch(e){ s_status.textContent='请求失败: '+e; }

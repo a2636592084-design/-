@@ -48,6 +48,7 @@ class LiveEngine:
         poll_seconds: int = 60,
         demo: bool = True,
         atr_stop_mult: float | None = None,
+        notify: bool = False,
     ):
         self.market = market
         self.symbol = symbol
@@ -59,7 +60,30 @@ class LiveEngine:
         self.poll_seconds = poll_seconds
         self.demo = demo
         self.atr_stop_mult = atr_stop_mult
+        self.notify = notify
+        self._notifiers = None
+        self._last_bucket: str | None = None
         self.state = EngineState()
+
+    def _maybe_notify(self, target_pos: float, price: float) -> None:
+        """信号档位变化时推送（best-effort，绝不阻塞交易）。首次只记基线。"""
+        if not self.notify:
+            return
+        bucket = "long" if target_pos > 0.5 else ("short" if target_pos < -0.5 else "flat")
+        if self._last_bucket is not None and bucket != self._last_bucket:
+            try:
+                from ..notify import build_from_env, notify_all
+                if self._notifiers is None:
+                    self._notifiers = build_from_env()
+                label = {"long": "🟢 买入/持有", "short": "🔴 做空", "flat": "⚪ 空仓/观望"}
+                notify_all(
+                    f"【信号变化】{self.symbol} {label[self._last_bucket]} → {label[bucket]}",
+                    f"策略: {self.strategy.name}\n最新价: {price}\n目标仓位: {target_pos:.2f}",
+                    self._notifiers,
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("信号通知失败: %s", e)
+        self._last_bucket = bucket
 
     def _target_from_strategy(self, df):
         """与回测完全一致的目标仓位计算（含可选 ATR 移动止损）。"""
@@ -77,6 +101,7 @@ class LiveEngine:
                        limit=self.lookback, demo=self.demo)
         price = float(df["close"].iloc[-1])
         raw_target = self._target_from_strategy(df)
+        self._maybe_notify(raw_target, price)
 
         # 把最新价喂给模拟盘
         if hasattr(self.broker, "set_price"):

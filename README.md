@@ -154,6 +154,34 @@ python run_dashboard.py   # 然后浏览器打开 http://127.0.0.1:8000
 
 ---
 
+## 信号变化通知 🔔（不用一直盯屏）
+
+当某标的从空仓变买入（或反过来）时主动提醒你。两种用法：
+
+**① 面板里（零配置）**：扫描页勾上"🔔 信号变化时通知我"+"自动刷新60秒"，
+浏览器会在信号变化时弹桌面通知 + 响提示音（首次会问你要通知权限，点允许）。
+
+**② 24小时盯盘推送（人不在电脑前也能收到）**：
+```bash
+# 干跑先看逻辑（无需任何密钥）
+python run_watch.py --market crypto --symbols BTC/USDT ETH/USDT --dry-run
+
+# 正式盯盘（配好 .env 通知渠道后，每5分钟扫一次）
+python run_watch.py --market ashare --symbols 600519 000001 300750 --strategy regime_switch --poll 300
+```
+它只在信号**真正变化的那一刻**推一次，重启也不会重复轰炸（状态存 `logs/signal_state.json`）。
+
+远程渠道在 `.env` 里填了哪个就启用哪个（都可选）：
+
+| 渠道 | 变量 | 申请 |
+|---|---|---|
+| 微信 Server酱 | `SERVERCHAN_KEY` | https://sct.ftqq.com 微信扫码 |
+| 微信 PushPlus | `PUSHPLUS_TOKEN` | https://www.pushplus.plus 微信扫码 |
+| Telegram | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | @BotFather 建 bot |
+| 邮件 | `SMTP_HOST/PORT/USER/PASS/TO` | 邮箱开启 SMTP 拿授权码 |
+
+实盘引擎也支持：`python run_live.py ... --notify`，成交信号变化时同样推送。
+
 ## A股怎么办？（你已选择"数据+信号"路线）
 
 A股没有面向散户的官方开放下单 API。现实选项：
