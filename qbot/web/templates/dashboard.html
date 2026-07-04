@@ -99,7 +99,7 @@
       <div class="field"><label>ATR止损</label><input id="atrstop" placeholder="关" size="4"></div>
       <div class="field"><label>&nbsp;</label><button class="go" id="run">运行回测</button></div>
     </div>
-    <div class="status" id="status">选择参数后点"运行回测"。合成市场无需联网即可演示。</div>
+    <div class="status" id="status">⚠️ 当前是「合成(离线演示)」<b>假数据</b>，只为演示、结果没有意义（这段假行情偏震荡，所以趋势策略会亏）。<b>要看真实结果，请把市场换成「加密 OKX」或「A股」</b>再回测。</div>
     <div class="metrics" id="metrics"></div>
     <div id="charts">
       <div class="plot" id="equityChart" style="height:360px"></div>
@@ -259,12 +259,26 @@
       }
     }
 
+    const STRAT_LABEL = {
+      confluence: 'confluence · 多指标共振（推荐·EMA+MACD+RSI+布林+量价）',
+      regime_switch: 'regime_switch · 自适应组合（趋势/震荡自动切换）',
+      trend_stack: 'trend_stack · 趋势栈（EMA+ADX+MACD）',
+      supertrend: 'supertrend · 超级趋势（含移动止损）',
+      ma_cross: 'ma_cross · 双均线趋势',
+      donchian: 'donchian · 唐奇安通道突破',
+      rsi_reversion: 'rsi_reversion · RSI均值回归（震荡市）',
+      bollinger_reversion: 'bollinger_reversion · 布林均值回归（震荡市）',
+      vwap_momentum: 'vwap_momentum · VWAP日内动量（用15m/1h）',
+    };
     async function loadStrategies(){
-      const list = await (await fetch('/api/strategies')).json();
-      const opt = list.map(s=>`<option value="${s}">${s}</option>`).join('');
+      let list = await (await fetch('/api/strategies')).json();
+      // 把 confluence 排到最前，方便用户找到"多指标"策略
+      list = list.slice().sort((a,b)=> (a==='confluence'?-1:0) - (b==='confluence'?-1:0));
+      const opt = list.map(s=>`<option value="${s}">${STRAT_LABEL[s]||s}</option>`).join('');
       strategy.innerHTML = opt;
       s_strategy.innerHTML = opt;
-      s_strategy.value = list.includes('regime_switch') ? 'regime_switch' : list[0];
+      strategy.value = list.includes('confluence') ? 'confluence' : list[0];
+      s_strategy.value = list.includes('confluence') ? 'confluence' : list[0];
     }
 
     /* ---------- 回测 ---------- */
@@ -399,6 +413,9 @@
       const m=e.target.value;
       symbol.value = m==='crypto'?'BTC/USDT':(m==='ashare'?'600519':'DEMO');
       ppy.value = m==='crypto'?'365':'252';
+      status.innerHTML = m==='synthetic'
+        ? '⚠️ 当前是「合成(离线演示)」<b>假数据</b>，结果没有意义。要看真实结果请选「加密 OKX」或「A股」。'
+        : `已选真实市场「${m==='crypto'?'加密 OKX':'A股'}」。填好标的、点"运行回测"（需联网/开加速器）。`;
     });
     document.getElementById('run').addEventListener('click', runBacktest);
     document.getElementById('scan').addEventListener('click', runScan);
