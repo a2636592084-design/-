@@ -34,8 +34,12 @@ class Position:
 class Account:
     cash: float
     positions: dict = field(default_factory=dict)
+    # 合约保证金账户直接给出总权益(USDT)；现货/模拟盘留 None，按 现金+持仓市值 计算
+    equity_override: float | None = None
 
     def equity(self, prices: dict) -> float:
+        if self.equity_override is not None:
+            return self.equity_override
         val = self.cash
         for sym, pos in self.positions.items():
             val += pos.amount * prices.get(sym, pos.avg_price)

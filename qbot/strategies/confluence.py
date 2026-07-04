@@ -35,6 +35,7 @@ class ConfluenceStrategy(Strategy):
         weights: dict | None = None,
         st_period: int = 10,
         st_mult: float = 3.0,
+        allow_short: bool = False,
     ):
         super().__init__(adx_min=adx_min, enter_thr=enter_thr, exit_thr=exit_thr)
         self.adx_min = adx_min
@@ -42,6 +43,9 @@ class ConfluenceStrategy(Strategy):
         self.exit_thr = exit_thr
         self.st_period = st_period
         self.st_mult = st_mult
+        self.allow_short = allow_short
+        # 允许做空 => 不再只做多；合约双向交易走这个
+        self.long_only = not allow_short
         # 默认均衡权重；可自定义某类指标更重
         self.weights = weights or {
             "ema": 1.0, "supertrend": 1.0, "macd": 1.0,
@@ -109,12 +113,20 @@ class ConfluenceStrategy(Strategy):
                 continue
             gate = (not np.isnan(adx_[i])) and adx_[i] >= self.adx_min
             if holding == 0.0:
-                # 开多的硬条件：站上EMA200(大趋势向上) + 有趋势(ADX) + 共振分够高
+                # 开多：站上EMA200(大趋势向上) + 有趋势 + 共振分够高
                 if trend_up[i] and gate and score[i] >= self.enter_thr:
                     holding = 1.0
-            else:
-                # 平仓：跌破EMA200(趋势破位) 或 共振转弱 或 SuperTrend翻空
+                # 开空（仅 allow_short）：跌破EMA200(下降趋势) + 有趋势 + 共振分够低
+                elif self.allow_short and (not trend_up[i]) and gate \
+                        and score[i] <= -self.enter_thr:
+                    holding = -1.0
+            elif holding > 0:
+                # 平多：跌破EMA200 或 共振转弱 或 SuperTrend翻空（多指标发现行情转变）
                 if (not trend_up[i]) or score[i] <= self.exit_thr or st_dir[i] < 0:
+                    holding = 0.0
+            else:  # holding < 0，持空
+                # 平空（镜像）：上穿EMA200 或 共振转强 或 SuperTrend翻多
+                if trend_up[i] or score[i] >= -self.exit_thr or st_dir[i] > 0:
                     holding = 0.0
             out[i] = holding
         return pd.Series(out, index=df.index)

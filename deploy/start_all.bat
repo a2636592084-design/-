@@ -28,7 +28,7 @@ start "qbot portfolio A-SHARE (signals)" cmd /k python run_portfolio.py --mode a
 
 REM 4) Crypto via OKX (feeds the "Crypto live" tab)
 REM    Uses your .env OKX key. OKX_DEMO=1 => simulated (no real money). Set 0 for real.
-start "qbot portfolio CRYPTO (OKX)" cmd /k python run_portfolio.py --mode crypto --market crypto --broker okx --strategy %STRATEGY% --top %TOP% --max-positions %MAXPOS% --poll %POLL% --notify
+start "qbot portfolio CRYPTO (OKX swap)" cmd /k python run_portfolio.py --mode crypto --market crypto --broker okx --trade-type swap --leverage 3 --allow-short --strategy %STRATEGY% --top %TOP% --max-positions %MAXPOS% --poll %POLL% --notify
 
 echo.
 echo Done. Open http://127.0.0.1:8000 and check the 3 trading tabs.

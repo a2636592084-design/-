@@ -143,6 +143,35 @@ python run_portfolio.py --mode ashare --market ashare --strategy confluence --to
 - **量化实盘加密**：⚠️ 真钱。需配好 OKX key，默认走模拟盘(demo)，`--broker okx`
   且 `OKX_DEMO=0`+`--i-understand-the-risk` 才动真钱。现货真单就绪，合约低杠杆保护。
 
+## 合约（永续·双向·逐仓）交易
+
+加密实盘可交易 OKX 永续合约，支持**做多和做空**，默认 **3x 杠杆、逐仓**。
+多个指标发现行情反转（共振分翻转 / SuperTrend 转向 / 破 EMA200）会**自动平仓**。
+
+```bash
+# 合约·3x·双向·模拟盘（默认引擎命令已是这个）
+python run_portfolio.py --mode crypto --market crypto --broker okx \
+  --trade-type swap --leverage 3 --allow-short --strategy confluence
+
+# 想改杠杆：--leverage 5   想只做多不做空：去掉 --allow-short   想现货：--trade-type spot
+```
+
+> ⚠️ **合约会爆仓**。杠杆越高死得越快（5x = 反向 20% 归零）。OKX 账户请设为
+> **单向持仓**；模拟盘用【模拟交易】里生成的 API Key。
+
+## 上真钱（小额实盘）——你要用 200-300U 起步
+
+**先在模拟盘跑几天、确认成交和平仓都正常，再考虑真钱。** 步骤：
+
+1. OKX 生成**实盘** API Key：**只勾「交易」，绝不勾「提现」**。
+2. 编辑 `.env`：填真实 key，把 `OKX_DEMO=1` 改成 **`OKX_DEMO=0`**。
+3. 加密命令末尾加 **`--i-understand-the-risk`**（不加会自我保护中止）。
+4. **把仓位调小**：`--max-positions 3`（200-300U + 3x 只够开 2-4 个合约仓，
+   OKX 每个合约有最小下单量）。先用最小仓验证真实成交和爆仓价，再逐步加。
+
+**血泪提醒**：200U 加杠杆，一波反向行情可能**很快归零**。**只投你亏得起、亏光也
+不影响生活的钱。** 我把工具给你，但风险是你自己扛——请务必先模拟盘跑稳。
+
 ## 让它更稳的三件武器（比"高年化"重要得多）
 
 > "提高胜率"是新手最大的陷阱——把参数拟合到历史最高胜率，实盘必碎。

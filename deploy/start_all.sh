@@ -34,7 +34,8 @@ start_one pf_ashare logs/pf_ashare.pid "$PY" run_portfolio.py --mode ashare --ma
   --strategy "$STRATEGY" --top 80 --signals-only --poll 900 --notify
 # 加密走 OKX（用 .env 的 key；OKX_DEMO=1 为模拟盘，无真钱）。无 key 时该进程会自行退出。
 start_one pf_crypto logs/pf_crypto.pid "$PY" run_portfolio.py --mode crypto --market crypto \
-  --broker okx --strategy "$STRATEGY" --top "$TOP" --max-positions "$MAXPOS" --poll "$POLL" --notify
+  --broker okx --trade-type swap --leverage 3 --allow-short \
+  --strategy "$STRATEGY" --top "$TOP" --max-positions "$MAXPOS" --poll "$POLL" --notify
 
 echo
 echo "面板: http://127.0.0.1:8000  （回测/扫描 + 三个交易页）"

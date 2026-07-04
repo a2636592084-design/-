@@ -46,7 +46,12 @@ class PaperBroker(Broker):
             pos.amount = new_amt
         else:
             self.account.cash += notional - fee
-            pos.amount -= order.amount
+            new_amt = pos.amount - order.amount
+            # 卖出使净仓变为/维持负数 = 开空/加空：记录做空均价（浮盈显示用）
+            if new_amt < 0:
+                pos.avg_price = px if pos.amount >= 0 else (
+                    (pos.avg_price * (-pos.amount) + notional) / (-new_amt))
+            pos.amount = new_amt
             if abs(pos.amount) < 1e-9:
                 pos.amount = 0.0
         self.account.positions[order.symbol] = pos

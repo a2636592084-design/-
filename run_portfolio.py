@@ -30,11 +30,15 @@ def main() -> None:
     p = argparse.ArgumentParser(description="qbot 全市场组合引擎")
     p.add_argument("--mode", default="paper", help="展示标签：paper/ashare/crypto")
     p.add_argument("--market", default="crypto", choices=["crypto", "ashare", "synthetic"])
-    p.add_argument("--types", nargs="+", default=["spot"],
-                   help="加密标的类型：spot swap future（可多选）")
+    p.add_argument("--types", nargs="+", default=None,
+                   help="加密标的类型：spot swap future（默认随 --trade-type）")
     p.add_argument("--quote", default="USDT")
     p.add_argument("--strategy", default="confluence", choices=list(REGISTRY))
     p.add_argument("--broker", default="paper", choices=["paper", "okx"])
+    p.add_argument("--trade-type", default="spot", choices=["spot", "swap"],
+                   help="现货 spot 或 合约/永续 swap")
+    p.add_argument("--leverage", type=int, default=3, help="合约杠杆(默认3)")
+    p.add_argument("--allow-short", action="store_true", help="允许做空(双向，合约用)")
     p.add_argument("--top", type=int, default=60, help="扫描标的数上限(按成交额)")
     p.add_argument("--max-positions", type=int, default=12, help="最多同时持仓数")
     p.add_argument("--capital", type=float, default=100_000.0)
@@ -48,12 +52,18 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = AppConfig.load()
-    strat = REGISTRY[args.strategy]()
+    # 双向做空：confluence 支持 allow_short
+    if args.allow_short and args.strategy == "confluence":
+        strat = REGISTRY[args.strategy](allow_short=True)
+    else:
+        strat = REGISTRY[args.strategy]()
     risk = RiskManager(RiskConfig())
 
-    print(f"列出 {args.market} 全市场标的（Top {args.top}）...")
-    universe = get_universe(args.market, top=args.top,
-                            types=tuple(args.types), quote=args.quote)
+    # 标的类型默认随 trade-type：合约取永续、现货取现货
+    types = tuple(args.types) if args.types else \
+        (("swap",) if args.trade_type == "swap" else ("spot",))
+    print(f"列出 {args.market} 全市场标的（Top {args.top} · {'/'.join(types)}）...")
+    universe = get_universe(args.market, top=args.top, types=types, quote=args.quote)
     if not universe:
         sys.exit("未获取到任何标的，请检查网络/代理。")
 
@@ -69,7 +79,9 @@ def main() -> None:
         if not creds.demo and not args.i_understand_the_risk:
             sys.exit("检测到实盘(OKX_DEMO=0)但缺 --i-understand-the-risk，已中止保护你。")
         from qbot.broker.okx import OKXBroker
-        broker = OKXBroker(creds.api_key, creds.secret, creds.passphrase, demo=creds.demo)
+        broker = OKXBroker(creds.api_key, creds.secret, creds.passphrase, demo=creds.demo,
+                           trade_type=args.trade_type, leverage=args.leverage,
+                           margin_mode="isolated")
         demo = creds.demo
     else:
         broker = PaperBroker(cash=args.capital)
@@ -87,8 +99,9 @@ def main() -> None:
         print(f"\n扫描 {st['scanned']}/{st['universe_size']} 个标的 · "
               f"持仓 {len(st['positions'])}/{args.max_positions} · 净值 {st['equity']} · "
               f"{'仅信号(手动下单)' if not execute else '已自动下单'}")
-        print("Top 信号：", ", ".join(
-            f"{r['symbol']}({r['strength']:+.2f})" for r in st["scan"][:8] if r["long"]) or "（当前无做多信号）")
+        sigs = [f"{r['symbol']}{'🟢多' if r.get('long') else '🔴空'}({r['strength']:+.2f})"
+                for r in st["scan"][:10] if r.get("long") or r.get("short")]
+        print("Top 信号：", ", ".join(sigs) or "（当前无做多/做空信号）")
     else:
         engine.run_forever()
 

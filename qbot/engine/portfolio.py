@@ -85,8 +85,9 @@ class PortfolioEngine:
                     strength = float(self.strategy.explain(df).get("score") or 0.0)
                 else:
                     strength = float(df["close"].iloc[-1] / df["close"].iloc[-min(21, len(df))] - 1.0)
-                rows.append({"symbol": sym, "price": price,
-                             "long": target > 0.5, "strength": round(strength, 4)})
+                rows.append({"symbol": sym, "price": price, "target": target,
+                             "long": target > 0.5, "short": target < -0.5,
+                             "strength": round(strength, 4)})
             except Exception as e:  # noqa: BLE001
                 log.debug("扫描 %s 失败: %s", sym, e)
         return rows
@@ -105,7 +106,7 @@ class PortfolioEngine:
         account = self.broker.get_account()
         equity = account.equity(prices)
         self.risk.update_equity(equity)
-        held = {s for s, p in account.positions.items() if p.amount > 0}
+        held = {s for s, p in account.positions.items() if abs(p.amount) > 1e-12}
 
         trades = []
         if self.execute:
@@ -120,31 +121,33 @@ class PortfolioEngine:
         return self._write_state(scan, trades)
 
     def _rebalance(self, scan, prices, account, equity, held) -> list[dict]:
+        """双向组合再平衡：多空皆可，多指标发现方向反转即平仓。"""
         trades = []
-        # 组合回撤熔断：清仓并停开新仓
+        # 组合回撤熔断：全部平仓、停开新仓
         if self.risk.halted:
             for sym in list(held):
-                amt = account.positions[sym].amount
-                self.broker.submit(Order(sym, "sell", amt))
-                trades.append(self._trade("sell", sym, amt, prices[sym]))
-            log.warning("组合回撤熔断已触发：全部清仓、停开新仓。")
+                self._close(sym, account, prices, trades)
+            log.warning("组合回撤熔断已触发：全部平仓、停开新仓。")
             return trades
 
-        long_syms = {r["symbol"] for r in scan if r["long"]}
-        # 1) 卖出：持仓中信号已转空的（单个失败不影响其它）
+        # 每个标的的目标方向：+1 多 / -1 空 / 0 空仓
+        desired = {r["symbol"]: (1 if r["target"] > 0.5 else (-1 if r["target"] < -0.5 else 0))
+                   for r in scan}
+
+        # 1) 平仓：持仓方向与最新信号不一致（含转为观望、或反向）
         for sym in list(held):
-            if sym not in long_syms:
-                amt = account.positions[sym].amount
-                if self._safe_submit(sym, "sell", amt, prices[sym], trades):
+            cur = account.positions[sym].amount
+            cur_side = 1 if cur > 0 else -1
+            if desired.get(sym, 0) != cur_side:
+                if self._close(sym, account, prices, trades):
                     held.discard(sym)
 
-        # 2) 买入：按强度排序，填满剩余仓位（跳过下不了单/已知不可交易的标的）
+        # 2) 开仓：按共振分绝对值排序，填满剩余仓位（多头买入开、空头卖出开）
         weight = min(1.0 / self.max_positions, self.risk.cfg.max_position_per_symbol)
         candidates = sorted(
-            (r for r in scan if r["long"] and r["symbol"] not in held
+            (r for r in scan if abs(r["target"]) > 0.5 and r["symbol"] not in held
              and r["symbol"] not in self._untradeable),
-            key=lambda r: r["strength"], reverse=True)
-        slots = self.max_positions - len(held)
+            key=lambda r: abs(r["strength"]), reverse=True)
         for r in candidates:
             if len(held) >= self.max_positions:
                 break
@@ -152,9 +155,20 @@ class PortfolioEngine:
             amt = (equity * weight) / price if price > 0 else 0.0
             if amt <= 0:
                 continue
-            if self._safe_submit(sym, "buy", amt, price, trades):
+            side = "buy" if r["target"] > 0 else "sell"   # 卖出=开空
+            if self._safe_submit(sym, side, amt, price, trades):
                 held.add(sym)
         return trades
+
+    def _close(self, sym, account, prices, trades) -> bool:
+        """平掉某标的的现有仓位（多单卖出平、空单买入平）。"""
+        cur = account.positions[sym].amount
+        px = prices.get(sym, account.positions[sym].avg_price)
+        if cur > 0:
+            return self._safe_submit(sym, "sell", cur, px, trades)
+        if cur < 0:
+            return self._safe_submit(sym, "buy", -cur, px, trades)
+        return True
 
     def _safe_submit(self, sym, side, amt, price, trades) -> bool:
         """下单，失败只跳过该标的、不中断整轮。返回是否成功。"""
@@ -213,13 +227,20 @@ class PortfolioEngine:
         prices = {r["symbol"]: r["price"] for r in scan}
         positions = []
         for sym, p in account.positions.items():
-            if p.amount <= 0:
+            if abs(p.amount) <= 1e-12:
                 continue
             px = prices.get(sym, p.avg_price)
+            is_long = p.amount > 0
+            # 方向感知的浮盈：多头 (现价/成本-1)，空头 (成本/现价-1)
+            if p.avg_price:
+                pnl = (px / p.avg_price - 1) if is_long else (p.avg_price / px - 1)
+            else:
+                pnl = 0.0
             positions.append({
-                "symbol": sym, "amount": round(p.amount, 6),
+                "symbol": sym, "side": "long" if is_long else "short",
+                "amount": round(abs(p.amount), 6),
                 "avg_price": round(p.avg_price, 6), "price": round(px, 6),
-                "pnl_pct": round((px / p.avg_price - 1) * 100, 2) if p.avg_price else 0.0,
+                "pnl_pct": round(pnl * 100, 2),
             })
         top_scan = sorted(scan, key=lambda r: r["strength"], reverse=True)[:30]
         for r in top_scan:

@@ -180,15 +180,17 @@
         return;
       }
 
-      const posRows = (d.positions||[]).map(p=>`
-        <tr><td class="sym">${p.symbol}</td>
+      const posRows = (d.positions||[]).map(p=>{
+        const dir = p.side==='short' ? '<span class="sig short">🔴空</span>' : '<span class="sig buy">🟢多</span>';
+        return `<tr><td class="sym">${p.symbol} ${dir}</td>
           <td>${p.price}</td><td>${p.avg_price}</td>
           <td class="${p.pnl_pct>=0?'pos':'neg'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct}%</td>
-          <td>${p.amount}</td></tr>`).join('') ||
+          <td>${p.amount}</td></tr>`; }).join('') ||
         `<tr><td colspan="5" style="color:var(--muted)">当前无持仓</td></tr>`;
 
       const scanRows = (d.scan||[]).slice(0,15).map(r=>{
-        const sig = r.long ? '<span class="sig buy">🟢做多</span>' : '<span class="sig flat">⚪观望</span>';
+        const sig = r.short ? '<span class="sig short">🔴做空</span>'
+          : (r.long ? '<span class="sig buy">🟢做多</span>' : '<span class="sig flat">⚪观望</span>');
         const sc = (r.strength>=0?'+':'')+Number(r.strength).toFixed(2);
         return `<tr class="${r.held?'flip':''}"><td class="sym">${r.symbol}${r.held?' <span class="flipbadge">持有中</span>':''}</td>
           <td>${r.price}</td><td class="${r.strength>0?'pos':(r.strength<0?'neg':'')}">${sc}</td>

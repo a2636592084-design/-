@@ -45,5 +45,6 @@ services:
     <<: *common
     command: >
       python run_portfolio.py --mode crypto --market crypto --broker okx
+      --trade-type swap --leverage 3 --allow-short
       --strategy confluence --top 60 --max-positions 12 --poll 300 --notify
     depends_on: [dashboard]

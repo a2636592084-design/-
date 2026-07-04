@@ -11,7 +11,8 @@ EnvironmentFile=/opt/qbot/.env
 # 用 .env 的 OKX key。OKX_DEMO=1 为模拟盘(无真钱)；设 0 才动真钱，
 # 且需在下行 ExecStart 末尾加 --i-understand-the-risk。请先跑稳模拟盘。
 ExecStart=/opt/qbot/.venv/bin/python run_portfolio.py \
-  --mode crypto --market crypto --broker okx --strategy confluence \
+  --mode crypto --market crypto --broker okx \
+  --trade-type swap --leverage 3 --allow-short --strategy confluence \
   --top 60 --max-positions 12 --poll 300 --notify
 Restart=always
 RestartSec=15
