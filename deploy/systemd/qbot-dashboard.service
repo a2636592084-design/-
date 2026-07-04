@@ -1,0 +1,19 @@
+[Unit]
+Description=qbot 可视化面板
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+# 只绑本地，通过 SSH 隧道访问，避免无验证面板暴露公网
+Environment=QBOT_HOST=127.0.0.1
+Environment=QBOT_PORT=8000
+ExecStart=/opt/qbot/.venv/bin/python run_dashboard.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

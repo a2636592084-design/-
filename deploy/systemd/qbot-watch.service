@@ -1,0 +1,19 @@
+[Unit]
+Description=qbot 盯盘推送（信号变化通知）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+# 修改下面的标的/策略/周期以适配你的关注池
+ExecStart=/opt/qbot/.venv/bin/python run_watch.py \
+  --market crypto --symbols BTC/USDT ETH/USDT SOL/USDT \
+  --strategy regime_switch --poll 300
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+# qbot 云服务器部署：一条命令起面板 + 盯盘 + 模拟交易三个进程。
+#   docker compose up -d --build
+# 三个服务共用同一镜像，各自跑不同命令；崩溃自动重启。
+# .env 提供 API/通知密钥；logs 目录持久化到宿主机。
+
+services:
+  dashboard:
+    build: .
+    image: qbot:latest
+    command: python run_dashboard.py
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QBOT_HOST: 0.0.0.0
+      QBOT_PORT: "8000"
+    ports:
+      # 只映射到宿主机本地，通过 SSH 隧道访问，避免无验证面板暴露公网
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  watch:
+    image: qbot:latest
+    build: .
+    command: >
+      python run_watch.py --market crypto
+      --symbols BTC/USDT ETH/USDT SOL/USDT
+      --strategy regime_switch --poll 300
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on: [dashboard]
+
+  live:
+    image: qbot:latest
+    build: .
+    # 默认模拟盘 paper；接 OKX 模拟盘把 --broker paper 改为 --broker okx
+    command: >
+      python run_live.py --broker paper --market crypto
+      --symbol BTC/USDT --strategy regime_switch --poll 300 --notify
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    depends_on: [dashboard]

@@ -30,6 +30,10 @@
 
 > 📖 **完全零基础？** 看 [`docs/新手上手指南.md`](docs/新手上手指南.md)，
 > 每一步都能复制粘贴，含 Windows/Mac 命令和常见报错解决。
+>
+> 🚀 **要部署（本地一键启动 / 云服务器 7×24）？** 看 [`docs/部署指南.md`](docs/部署指南.md)：
+> Windows 双击 `deploy/start_all.bat`、Mac/Linux 跑 `deploy/start_all.sh` 即可同时起
+> 面板+盯盘+模拟交易；云上用 Docker(`docker compose up -d`) 或 systemd 自启。
 
 ## 快速开始（3 步，无需联网即可看到效果）
 
