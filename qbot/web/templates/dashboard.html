@@ -57,6 +57,12 @@
     .flipbadge { color:var(--gold); font-size:11px; margin-left:6px; }
     .bar { display:inline-block; height:6px; border-radius:3px; vertical-align:middle;
            background:var(--accent); }
+    .pf-h { font-size:13px; color:var(--muted); letter-spacing:.05em; margin:22px 0 8px;
+            padding-bottom:6px; border-bottom:1px solid var(--line); }
+    .pf-empty { padding:28px 24px; color:var(--muted); }
+    .pf-empty .term { background:#0a1413; color:#cfe4e0; border-radius:8px; padding:12px 14px;
+            margin:12px 0; font-family:ui-monospace,Consolas,monospace; font-size:13px; overflow-x:auto; }
+    .pf-empty .hint { font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
@@ -68,6 +74,9 @@
   <nav>
     <button id="tab-bt" class="active" onclick="switchTab('bt')">回测</button>
     <button id="tab-scan" onclick="switchTab('scan')">实时信号扫描</button>
+    <button id="tab-paper" onclick="switchTab('paper')">模拟量化交易</button>
+    <button id="tab-ashare" onclick="switchTab('ashare')">量化实盘A股</button>
+    <button id="tab-crypto" onclick="switchTab('crypto')">量化实盘加密</button>
   </nav>
 
   <!-- ============ 回测视图 ============ -->
@@ -136,15 +145,105 @@
     </div>
   </div>
 
+  <!-- ============ 组合交易视图（模拟/实盘A股/实盘加密 共用）============ -->
+  <div id="view-paper" class="view"></div>
+  <div id="view-ashare" class="view"></div>
+  <div id="view-crypto" class="view"></div>
+
   <script>
     const pct = x => (x*100).toFixed(2) + '%';
     const num = x => (x==null?'-':Number(x).toFixed(2));
 
+    const PF_META = {
+      paper:  {title:'模拟量化交易', warn:'虚拟资金 · 覆盖加密与A股 · 零风险练手', run:'run_portfolio.py --mode paper'},
+      ashare: {title:'量化实盘 A股', warn:'⚠️ 信号仅供参考 · A股不自动下单 · 请手动/半自动执行', run:'run_portfolio.py --mode ashare --market ashare --signals-only'},
+      crypto: {title:'量化实盘 加密', warn:'⚠️ 真钱风险 · 需配好 OKX key · 默认模拟盘(demo) · 先跑稳再上真钱', run:'run_portfolio.py --mode crypto --market crypto --broker okx'},
+    };
+
+    async function loadPortfolio(mode){
+      const box = document.getElementById('view-'+mode);
+      const meta = PF_META[mode];
+      let d;
+      try { d = await (await fetch('/api/portfolio?mode='+mode)).json(); }
+      catch(e){ box.innerHTML = `<div class="status">读取失败: ${e}</div>`; return; }
+
+      if(!d.running){
+        box.innerHTML = `
+          <div class="controls"><div style="padding:6px 0">
+            <b style="font-size:16px">${meta.title}</b>
+            <div class="status" style="padding:8px 0">${meta.warn}</div></div></div>
+          <div class="pf-empty">
+            <p>引擎还没运行。在项目终端运行下面命令启动，本页会自动显示状态：</p>
+            <div class="term"><span class="cmd">python ${meta.run} --strategy confluence --top 60</span></div>
+            <p class="hint">${d.reason||''}</p>
+          </div>`;
+        return;
+      }
+
+      const posRows = (d.positions||[]).map(p=>`
+        <tr><td class="sym">${p.symbol}</td>
+          <td>${p.price}</td><td>${p.avg_price}</td>
+          <td class="${p.pnl_pct>=0?'pos':'neg'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct}%</td>
+          <td>${p.amount}</td></tr>`).join('') ||
+        `<tr><td colspan="5" style="color:var(--muted)">当前无持仓</td></tr>`;
+
+      const scanRows = (d.scan||[]).slice(0,15).map(r=>{
+        const sig = r.long ? '<span class="sig buy">🟢做多</span>' : '<span class="sig flat">⚪观望</span>';
+        const sc = (r.strength>=0?'+':'')+Number(r.strength).toFixed(2);
+        return `<tr class="${r.held?'flip':''}"><td class="sym">${r.symbol}${r.held?' <span class="flipbadge">持有中</span>':''}</td>
+          <td>${r.price}</td><td class="${r.strength>0?'pos':(r.strength<0?'neg':'')}">${sc}</td>
+          <td style="text-align:right">${sig}</td></tr>`;
+      }).join('');
+
+      const tradeRows = (d.recent_trades||[]).map(t=>`
+        <tr><td style="color:var(--muted)">${t.ts}</td>
+          <td class="${t.side==='buy'?'pos':'neg'}">${t.side==='buy'?'买入':'卖出'}</td>
+          <td class="sym">${t.symbol}</td><td>${t.price}</td><td>${t.amount}</td></tr>`).join('') ||
+        `<tr><td colspan="5" style="color:var(--muted)">暂无成交</td></tr>`;
+
+      box.innerHTML = `
+        <div class="controls" style="border:none">
+          <div style="flex:1">
+            <b style="font-size:16px">${meta.title}</b>
+            <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
+          </div>
+          <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size} · 更新 ${d.ts}
+            ${d.halted?'<span class="neg"> · 🛑组合熔断</span>':''}
+            ${d.execute?'':'<span style="color:var(--gold)"> · 仅信号(手动)</span>'}</div>
+        </div>
+        <div class="metrics">
+          <div class="card"><div class="k">净值</div><div class="v">${d.equity?.toLocaleString?.()??d.equity}</div></div>
+          <div class="card"><div class="k">现金</div><div class="v">${d.cash?.toLocaleString?.()??d.cash}</div></div>
+          <div class="card"><div class="k">持仓数</div><div class="v">${(d.positions||[]).length}/${d.max_positions}</div></div>
+          <div class="card"><div class="k">全市场</div><div class="v">${d.universe_size}</div></div>
+        </div>
+        <div class="scanwrap">
+          <h3 class="pf-h">${d.execute?'当前持仓':'建议持有（手动下单）'}</h3>
+          <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>浮盈</th><th>数量</th></tr></thead>
+            <tbody>${posRows}</tbody></table>
+          <h3 class="pf-h">全市场扫描 · Top 信号（按共振分/强度）</h3>
+          <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>强度</th><th>信号</th></tr></thead>
+            <tbody>${scanRows}</tbody></table>
+          <h3 class="pf-h">近期成交</h3>
+          <table class="scan num"><thead><tr><th>时间</th><th>方向</th><th>标的</th><th>价格</th><th>数量</th></tr></thead>
+            <tbody>${tradeRows}</tbody></table>
+        </div>`;
+    }
+
+    const ALL_TABS = ['bt','scan','paper','ashare','crypto'];
+    let pfTimer = null;
     function switchTab(t){
-      document.getElementById('view-bt').classList.toggle('active', t==='bt');
-      document.getElementById('view-scan').classList.toggle('active', t==='scan');
-      document.getElementById('tab-bt').classList.toggle('active', t==='bt');
-      document.getElementById('tab-scan').classList.toggle('active', t==='scan');
+      ALL_TABS.forEach(x=>{
+        const v = document.getElementById('view-'+x);
+        const b = document.getElementById('tab-'+x);
+        if(v) v.classList.toggle('active', x===t);
+        if(b) b.classList.toggle('active', x===t);
+      });
+      clearInterval(pfTimer); pfTimer=null;
+      if(['paper','ashare','crypto'].includes(t)){
+        loadPortfolio(t);
+        pfTimer = setInterval(()=>loadPortfolio(t), 30000);  // 每30秒刷新
+      }
     }
 
     async function loadStrategies(){

@@ -117,6 +117,32 @@ run_dashboard.py 启动面板
 自己加指标/策略：在 `indicators.py` 加函数，在 `strategies/` 照葫芦画瓢写个类，
 `__init__.py` 注册一行，回测/扫描/实盘/面板全自动认得。
 
+## 全市场组合引擎（扫描全部 → 择优持有有限仓位）
+
+面板上除了「回测」「实时信号扫描」，还有三个交易页：**模拟量化交易 / 量化实盘A股 /
+量化实盘加密**。它们由后台的组合引擎驱动——**扫描全市场标的，按共振分/信号强度排序，
+在风控约束下只持有有限个（默认最多12个）表现最好的仓位**。这是专业做法：检测可以全，
+持仓必须精。绝不"把所有标的都买一遍"（资金和风控都不允许）。
+
+```bash
+# 模拟盘·加密全市场(现货Top60)·共振策略，先跑一轮看看
+python run_portfolio.py --mode paper --market crypto --strategy confluence --top 60 --once
+
+# 现货+永续合约一起扫
+python run_portfolio.py --mode crypto --market crypto --types spot swap --top 80
+
+# A股实盘 = 信号+手动（只出"建议持有"清单，不自动下单）
+python run_portfolio.py --mode ashare --market ashare --strategy confluence --top 80 --signals-only
+```
+
+引擎每轮把状态写进 `logs/portfolio_<mode>.json`，面板对应的交易页自动读取并展示：
+**当前持仓（含浮盈）、全市场扫描Top信号（含共振分）、近期成交、净值**。
+
+- **模拟量化交易**：虚拟资金，覆盖加密与A股，零风险练手。
+- **量化实盘A股**：⚠️ 只出信号，**不自动下单**（A股无散户API），你手动/半自动执行。
+- **量化实盘加密**：⚠️ 真钱。需配好 OKX key，默认走模拟盘(demo)，`--broker okx`
+  且 `OKX_DEMO=0`+`--i-understand-the-risk` 才动真钱。现货真单就绪，合约低杠杆保护。
+
 ## 让它更稳的三件武器（比"高年化"重要得多）
 
 > "提高胜率"是新手最大的陷阱——把参数拟合到历史最高胜率，实盘必碎。

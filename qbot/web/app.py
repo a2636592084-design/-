@@ -121,6 +121,33 @@ def api_scan(
     return JSONResponse(rows)
 
 
+@app.get("/api/portfolio")
+def api_portfolio(mode: str = "paper") -> JSONResponse:
+    """读取组合引擎落盘的状态，供面板三个交易页展示。"""
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parent.parent.parent / "logs" / f"portfolio_{mode}.json"
+    if not path.exists():
+        return JSONResponse({"running": False, "reason": "引擎未启动或还没跑出第一轮。"
+                             f" 请先运行 run_portfolio.py（mode={mode}）。"})
+    try:
+        return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"running": False, "reason": f"读取状态失败: {e}"})
+
+
+@app.get("/api/universe")
+def api_universe(market: str = "crypto", top: int = 30,
+                 types: str = "spot") -> JSONResponse:
+    """列出全市场标的数量与 Top 预览。"""
+    try:
+        from ..universe import get_universe
+        syms = get_universe(market, top=top, types=tuple(types.split(",")))
+        return JSONResponse({"count": len(syms), "symbols": syms})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
 @app.get("/api/symbols")
 def api_symbols(market: str = "crypto", quote: str = "USDT") -> JSONResponse:
     try:
