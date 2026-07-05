@@ -448,10 +448,11 @@
     function showConfigForm(mode){ _forceForm[mode]=true; _formShown[mode]=false; loadPortfolio(mode); }
     function cancelConfig(mode){ _forceForm[mode]=false; _formShown[mode]=false; loadPortfolio(mode); }
     const PRESETS = {
-      // 稳健(推荐)：合约3x双向、4小时线、ATR自适应止损2.5×、保本5%、被止损冷却3轮、按波动定仓位
-      stable: {slmode:'atr', atr:2.5, tf:'4h', cd:3, be:5,
+      // 稳健(推荐)：合约3x双向、4小时线、固定止损8%+保本5%+移动6%、冷却3轮、大盘方向闸+优质币
+      // ↑ 这套是组合回测里跨策略/门槛都稳定占优的配置(固定%胜过ATR、大盘闸降回撤提收益)
+      stable: {slmode:'pct', atr:2.5, tf:'4h', cd:3, be:5,
                trade_type:'swap', leverage:3, allow_short:true, top:40, max_positions:4, poll:60,
-               stop_loss:8, take_profit:0, trailing_stop:6},
+               stop_loss:8, take_profit:0, trailing_stop:6, market_gate:true, quality:true},
       // 保守：现货、只做多、日线、固定止损6%、止盈15%
       safe:   {slmode:'pct', atr:2.5, tf:'1d', cd:0, be:0,
                trade_type:'spot', leverage:1, allow_short:false, top:30, max_positions:5, poll:300,
@@ -561,6 +562,8 @@
       set('f_tt',p.trade_type); set('f_lev',p.leverage); set('f_short',p.allow_short);
       set('f_top',p.top); set('f_max',p.max_positions); set('f_poll',p.poll);
       set('f_sl',p.stop_loss); set('f_tp',p.take_profit); set('f_be',p.be); set('f_ts',p.trailing_stop);
+      if(p.market_gate!==undefined) set('f_gate',p.market_gate);
+      if(p.quality!==undefined) set('f_quality',p.quality);
       toggleLev(mode); toggleSlMode(mode);
     }
     function gatherCfg(mode){
