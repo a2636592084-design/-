@@ -201,7 +201,12 @@ class PortfolioEngine:
             return True
         except Exception as e:  # noqa: BLE001
             msg = str(e)
-            if "does not have market symbol" in msg or "BadSymbol" in msg or "51001" in msg:
+            if "posSide" in msg or "51000" in msg:
+                if not getattr(self, "_warned_posmode", False):
+                    log.error("下单被拒(posSide/51000)：OKX 账户是【双向持仓】模式，本系统按【单向】"
+                              "交易。请在 OKX 交易设置里改成【单向持仓/买卖模式】，再重启。")
+                    self._warned_posmode = True
+            elif "does not have market symbol" in msg or "BadSymbol" in msg or "51001" in msg:
                 self._untradeable.add(sym)   # 该标的（模拟盘）不可交易，记下不再重试
                 log.warning("%s 不可交易（%s模拟盘可能不支持），已跳过。", sym, "OKX")
             else:

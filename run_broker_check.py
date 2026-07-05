@@ -77,6 +77,19 @@ def main() -> None:
             _p(BAD, f"读取账户失败：{msg[:120]}")
         sys.exit(1)
 
+    # 2b) 持仓模式（合约关键）：本系统按【单向/net】交易
+    if args.trade_type == "swap":
+        pm = broker.position_mode()
+        if pm == "net_mode":
+            _p(OK, "持仓模式：单向(net) ✓ 与本系统匹配")
+        elif pm == "long_short_mode":
+            _p(BAD, "持仓模式：双向/对冲(long_short)！本系统按【单向】交易，"
+                    "双向模式下单会报 51000 posSide error。")
+            _p(WARN, "改法：OKX App/网页 → 交易 → 设置(持仓模式) → 选【单向持仓/买卖模式】"
+                     "（需先无持仓、无挂单），然后重跑本自检。")
+        else:
+            _p(WARN, "未能读取持仓模式。若下单报 posSide 错误，请把 OKX 改成【单向持仓】。")
+
     sym = args.symbol or ("BTC/USDT:USDT" if args.trade_type == "swap" else "BTC/USDT")
 
     # 3) 市场信息 + 最小下单量
@@ -93,13 +106,12 @@ def main() -> None:
     price = broker.market_price(sym)
     _p(OK, f"最新价 {price}")
 
-    # 4) 合约：杠杆 + 持仓模式 + 资金费率
+    # 4) 合约：杠杆 + 资金费率
     if args.trade_type == "swap":
-        try:
-            broker._ensure_leverage(sym)
+        if broker._ensure_leverage(sym):
             _p(OK, f"杠杆已设置为 {args.leverage}x（逐仓 isolated）")
-        except Exception as e:  # noqa: BLE001
-            _p(WARN, f"设置杠杆异常：{str(e)[:100]}（可能账户是双向持仓模式）")
+        else:
+            _p(WARN, "杠杆设置未成功（多半是双向持仓模式）。改成【单向持仓】后重试。")
         try:
             fr = broker.fetch_funding([sym]).get(sym, {})
             _p(OK, f"资金费率 {sym}：{fr.get('rate')}（下次结算 {fr.get('next_ts')}）")
@@ -112,16 +124,21 @@ def main() -> None:
         _p(OK, "只读自检通过。要验证真实下单，加 --place-test-order（先用模拟盘）。")
         return
 
+    # 名义金额必须 ≥ 最小下单量对应的名义，否则 OKX 拒单
+    min_notional = float(min_amt or 0.01) * csize * price
+    use_notional = max(args.notional, min_notional * 1.3)
     print("-" * 56)
-    _p(WARN, f"即将下一个极小市价单（名义≈{args.notional}U）并立刻平掉：{sym}")
+    if use_notional > args.notional:
+        _p(WARN, f"最小名义≈{min_notional:.2f}U，测试单自动调到 {use_notional:.2f}U（避免拒单）")
+    _p(WARN, f"即将下一个极小市价单（名义≈{use_notional:.2f}U）并立刻平掉：{sym}")
     from qbot.broker.base import Order
-    amt = args.notional / price if price > 0 else 0.0
+    amt = use_notional / price if price > 0 else 0.0
     try:
         f1 = broker.submit(Order(sym, "buy", amt))
         _p(OK, f"开仓成交：买入 {sym} @ {f1.price}（数量≈{amt:.6f}）")
     except Exception as e:  # noqa: BLE001
         _p(BAD, f"开仓失败：{str(e)[:140]}")
-        _p(WARN, "常见原因：低于最小下单量→加大 --notional；账户双向持仓→改单向；保证金不足。")
+        _p(WARN, "常见原因：账户双向持仓→改单向持仓；保证金不足；或再加大 --notional。")
         sys.exit(1)
 
     time.sleep(2)

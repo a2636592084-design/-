@@ -50,15 +50,36 @@ class OKXBroker(Broker):
     def market_price(self, symbol: str) -> float:
         return float(self.exchange.fetch_ticker(symbol)["last"])
 
-    def _ensure_leverage(self, symbol: str) -> None:
-        if self.trade_type != "swap" or symbol in self._lev_set:
-            return
+    def position_mode(self) -> str | None:
+        """账户持仓模式：'net_mode'(单向) 或 'long_short_mode'(双向/对冲)。"""
         try:
-            self.exchange.set_leverage(self.leverage, symbol,
-                                       params={"mgnMode": self.margin_mode})
+            cfg = self.exchange.private_get_account_config()
+            return ((cfg.get("data") or [{}])[0]).get("posMode")
         except Exception as e:  # noqa: BLE001
-            log.warning("设置 %s 杠杆失败(%s)，用账户当前杠杆继续。", symbol, str(e)[:80])
-        self._lev_set.add(symbol)
+            log.debug("读取持仓模式失败: %s", str(e)[:80])
+            return None
+
+    def _ensure_leverage(self, symbol: str) -> bool:
+        """设杠杆。兼容单向(net)与双向(long_short)：依次尝试，哪种成立哪种生效。
+        单向账户第一次尝试即成功；双向账户需分别给 long/short 两侧设置。"""
+        if self.trade_type != "swap":
+            return True
+        if symbol in self._lev_set:
+            return True
+        ok, last = False, None
+        for params in ({"mgnMode": self.margin_mode},
+                       {"mgnMode": self.margin_mode, "posSide": "long"},
+                       {"mgnMode": self.margin_mode, "posSide": "short"}):
+            try:
+                self.exchange.set_leverage(self.leverage, symbol, params=params)
+                ok = True
+            except Exception as e:  # noqa: BLE001
+                last = e
+        if ok:
+            self._lev_set.add(symbol)
+        else:
+            log.warning("设置 %s 杠杆失败(%s)，用账户当前杠杆继续。", symbol, str(last)[:80])
+        return ok
 
     def submit(self, order: Order) -> Fill:
         if self.trade_type == "swap":
