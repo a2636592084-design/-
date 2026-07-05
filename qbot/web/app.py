@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from ..backtest import Backtester
 from ..data.loader import get_ohlcv
@@ -300,6 +301,52 @@ def api_signals(market: str = "crypto", symbol: str = "BTC/USDT",
         })
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"error": str(e)[:150]}, status_code=502)
+
+
+class EngineCfg(BaseModel):
+    mode: str = "paper"
+    market: str = "crypto"
+    broker: str = "paper"
+    trade_type: str = "spot"
+    leverage: int = 3
+    allow_short: bool = False
+    strategy: str = "confluence"
+    top: int = 40
+    max_positions: int = 6
+    timeframe: str = "1d"
+    poll: int = 60
+    stop_loss: float = 0.08
+    take_profit: float = 0.0
+    breakeven: float = 0.05
+    trailing_stop: float = 0.06
+    notify: bool = False
+    i_understand_risk: bool = False
+    capital: float = 100_000.0
+
+
+@app.post("/api/engine/start")
+def api_engine_start(cfg: EngineCfg) -> JSONResponse:
+    """网页"启动"按钮：在面板进程内后台线程启动组合引擎。"""
+    from .runner import RUNNER
+    data = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg.dict()
+    try:
+        info = RUNNER.start(data)
+        return JSONResponse({"ok": True, "info": info})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)[:200]})
+
+
+@app.post("/api/engine/stop")
+def api_engine_stop(mode: str = "paper") -> JSONResponse:
+    from .runner import RUNNER
+    RUNNER.stop(mode)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/engine/status")
+def api_engine_status(mode: str = "paper") -> JSONResponse:
+    from .runner import RUNNER
+    return JSONResponse(RUNNER.status(mode))
 
 
 @app.get("/api/portfolio")

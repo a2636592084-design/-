@@ -424,11 +424,28 @@ class PortfolioEngine:
                     self.tick()
                 except Exception as e:  # noqa: BLE001
                     self._log_friendly_error(e)
-                time.sleep(self.poll_seconds)
+                # 可中断睡眠：每秒检查一次停止标志，让"停止"按钮 ≤1 秒生效
+                for _ in range(max(1, int(self.poll_seconds))):
+                    if not self.state.running:
+                        break
+                    time.sleep(1)
         except KeyboardInterrupt:
             log.info("收到停止信号，组合引擎退出。")
         finally:
             self.state.running = False
+            self._mark_stopped()
+
+    def _mark_stopped(self) -> None:
+        """引擎退出时把落盘状态标记为 running=False，让面板回到"启动"表单。"""
+        path = _STATE_DIR / f"portfolio_{self.mode}.json"
+        if not path.exists():
+            return
+        try:
+            d = json.loads(path.read_text(encoding="utf-8"))
+            d["running"] = False
+            path.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
 
     @staticmethod
     def _log_friendly_error(e: Exception) -> None:

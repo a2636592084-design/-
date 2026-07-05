@@ -50,6 +50,34 @@
     .lp-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; text-align:center; }
     .lp-card .k { font-size:11px; color:var(--muted); }
     .lp-card .v { font-size:18px; font-weight:700; margin-top:3px; }
+    /* 一键启动控制面板 */
+    .ctl-wrap { max-width:720px; margin:20px auto; background:var(--panel);
+      border:1px solid var(--line); border-radius:14px; padding:20px; }
+    .ctl-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+    .ctl-head b { font-size:18px; }
+    .ctl-presets { margin:12px 0; font-size:13px; color:var(--muted); }
+    .ctl-presets button { background:var(--accent); color:#04101f; border:none; border-radius:6px;
+      padding:5px 12px; margin-left:6px; cursor:pointer; font-weight:600; font-size:13px; }
+    .ctl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin:10px 0; }
+    .ctl-grid label { display:flex; flex-direction:column; gap:5px; font-size:13px; color:var(--muted); }
+    .ctl-grid input, .ctl-grid select { background:var(--bg); border:1px solid var(--line);
+      color:var(--fg); border-radius:7px; padding:8px; font-size:14px; }
+    .ctl-chk { flex-direction:row !important; align-items:center; gap:6px !important; color:var(--fg) !important; cursor:pointer; }
+    .ctl-chk input { width:16px; height:16px; }
+    .ctl-risk { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:12px 0; }
+    .ctl-risk-t { font-size:13px; font-weight:600; }
+    .ctl-riskack { display:flex; align-items:flex-start; gap:8px; margin:10px 0; font-size:12.5px;
+      color:var(--gold); background:rgba(214,165,69,.08); border:1px solid var(--gold);
+      border-radius:8px; padding:10px; cursor:pointer; }
+    .ctl-note { font-size:12.5px; color:var(--muted); margin:8px 0; }
+    .ctl-start { width:100%; background:var(--up); color:#04140f; border:none; border-radius:10px;
+      padding:13px; font-size:16px; font-weight:700; cursor:pointer; margin-top:8px; }
+    .ctl-start:disabled { opacity:.6; cursor:default; }
+    .pf-err { background:rgba(239,83,80,.12); border:1px solid var(--down); color:var(--down);
+      border-radius:8px; padding:8px 12px; font-size:13px; margin:8px 0; }
+    .running-dot { color:var(--up); font-size:12px; font-weight:700; animation:pulse 1.4s ease-in-out infinite; }
+    .pf-stop { background:var(--down); color:#fff; border:none; border-radius:7px;
+      padding:5px 12px; font-size:13px; font-weight:600; cursor:pointer; margin-left:8px; }
     #charts { padding:0 24px 24px; }
     .plot { background:var(--panel); border:1px solid var(--line);
             border-radius:10px; margin-top:16px; }
@@ -396,23 +424,143 @@
         <path d="${d}" fill="none" stroke="${col}" stroke-width="1.6"/>
         <path d="${d} L${w},${h} L0,${h} Z" fill="${col}" opacity="0.08"/></svg>`;
     }
+    /* ---------- 一键启动控制面板（代替命令行） ---------- */
+    let _formShown = {};
+    const PRESETS = {
+      // 稳健(推荐)：合约3x双向、止损8%、关固定止盈、保本5%、移动止损6%、1分钟检测
+      stable: {trade_type:'swap', leverage:3, allow_short:true, top:40, max_positions:4,
+               poll:60, stop_loss:8, take_profit:0, breakeven:5, trailing_stop:6},
+      // 保守：现货、只做多、止损6%、止盈15%
+      safe:   {trade_type:'spot', leverage:1, allow_short:false, top:30, max_positions:5,
+               poll:300, stop_loss:6, take_profit:15, breakeven:0, trailing_stop:0},
+    };
+    function controlPanel(mode, error){
+      const meta = PF_META[mode];
+      const isCrypto = mode==='crypto';
+      const isAshare = mode==='ashare';
+      const broker = isCrypto ? 'okx' : 'paper';
+      const errHtml = error ? `<div class="pf-err">上次启动失败：${error}</div>` : '';
+      if(isAshare){
+        return `<div class="ctl-wrap">
+          <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span></div>
+          ${errHtml}
+          <div class="ctl-grid">
+            <label>扫描数量(只)<input type="number" id="f_top_${mode}" value="80"></label>
+            <label>检测频率<select id="f_poll_${mode}">
+              <option value="60">1分钟</option><option value="300" selected>5分钟</option>
+              <option value="900">15分钟</option></select></label>
+          </div>
+          <div class="ctl-note">A股只出【建议买入】信号，不自动下单，你手动执行。</div>
+          <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动扫描</button>
+        </div>`;
+      }
+      return `<div class="ctl-wrap">
+        <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span></div>
+        ${errHtml}
+        <div class="ctl-presets">一键套用：
+          <button onclick="applyPreset('${mode}','stable')">稳健(推荐)</button>
+          <button onclick="applyPreset('${mode}','safe')">保守</button>
+        </div>
+        <div class="ctl-grid">
+          <label>交易类型<select id="f_tt_${mode}" onchange="toggleLev('${mode}')">
+            <option value="spot">现货</option><option value="swap" selected>合约/永续</option></select></label>
+          <label id="f_levwrap_${mode}">杠杆<select id="f_lev_${mode}">
+            <option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+          <label class="ctl-chk"><input type="checkbox" id="f_short_${mode}" checked>允许做空(双向)</label>
+          <label>扫描数量<input type="number" id="f_top_${mode}" value="40"></label>
+          <label>最多持仓<input type="number" id="f_max_${mode}" value="4"></label>
+          <label>检测频率<select id="f_poll_${mode}">
+            <option value="60" selected>1分钟</option><option value="300">5分钟</option>
+            <option value="900">15分钟</option></select></label>
+        </div>
+        <div class="ctl-risk">
+          <div class="ctl-risk-t">🛡️ 风控（都可留空=关）</div>
+          <div class="ctl-grid">
+            <label>止损%<input type="number" id="f_sl_${mode}" value="8" step="0.5"></label>
+            <label>固定止盈%<input type="number" id="f_tp_${mode}" value="0" step="1"
+              title="0=关闭固定止盈，靠移动止损锁利润"></label>
+            <label>保本触发%<input type="number" id="f_be_${mode}" value="5" step="0.5"
+              title="盈利到这个%就把止损抬到成本"></label>
+            <label>移动止损%<input type="number" id="f_ts_${mode}" value="6" step="0.5"
+              title="止损跟随峰值、留这么多回撤空间"></label>
+          </div>
+        </div>
+        ${isCrypto?`<label class="ctl-chk ctl-riskack"><input type="checkbox" id="f_ack_${mode}">
+          我已了解：只有当 .env 里 OKX_DEMO=0 时才动真钱，我愿承担杠杆爆仓风险
+          <span class="muted">（默认模拟盘不用勾）</span></label>`:''}
+        <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动 ${broker==='okx'?'(OKX)':'(模拟盘)'}</button>
+      </div>`;
+    }
+    function toggleLev(mode){
+      const tt=document.getElementById('f_tt_'+mode).value;
+      const w=document.getElementById('f_levwrap_'+mode);
+      if(w) w.style.display = tt==='swap' ? '' : 'none';
+    }
+    function applyPreset(mode, name){
+      const p=PRESETS[name]; if(!p) return;
+      const set=(id,v)=>{const el=document.getElementById(id+'_'+mode); if(el){ if(el.type==='checkbox') el.checked=!!v; else el.value=v; }};
+      set('f_tt',p.trade_type); set('f_lev',p.leverage); set('f_short',p.allow_short);
+      set('f_top',p.top); set('f_max',p.max_positions); set('f_poll',p.poll);
+      set('f_sl',p.stop_loss); set('f_tp',p.take_profit); set('f_be',p.breakeven); set('f_ts',p.trailing_stop);
+      toggleLev(mode);
+    }
+    async function startEngine(mode){
+      const g=(id,d)=>{const el=document.getElementById(id+'_'+mode); return el?(el.type==='checkbox'?el.checked:el.value):d;};
+      const cfg = {
+        mode, broker: mode==='crypto'?'okx':'paper',
+        market: mode==='ashare'?'ashare':'crypto',
+        trade_type: g('f_tt','spot'), leverage: +g('f_lev',3), allow_short: !!g('f_short',false),
+        top: +g('f_top',40), max_positions: +g('f_max',6), poll: +g('f_poll',60),
+        stop_loss: (+g('f_sl',0))/100, take_profit: (+g('f_tp',0))/100,
+        breakeven: (+g('f_be',0))/100, trailing_stop: (+g('f_ts',0))/100,
+        i_understand_risk: !!g('f_ack',false),
+      };
+      const btn=document.querySelector('#view-'+mode+' .ctl-start');
+      if(btn){ btn.disabled=true; btn.textContent='启动中…'; }
+      let r; try{ r = await (await fetch('/api/engine/start',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)})).json(); }
+      catch(e){ r={ok:false,error:'请求失败'}; }
+      if(!r.ok){
+        if(btn){ btn.disabled=false; btn.textContent='▶ 启动'; }
+        const ew=document.querySelector('#view-'+mode+' .pf-err');
+        const msg=`启动失败：${r.error||'未知错误'}`;
+        if(ew) ew.textContent=msg; else alert(msg);
+        return;
+      }
+      _formShown[mode]=false;
+      loadPortfolio(mode);          // 切到运行视图；tab 的 30 秒定时器会持续刷新
+    }
+    async function stopEngine(mode){
+      if(!confirm('确定停止'+PF_META[mode].title+'？已有持仓不会自动平掉，需要时请去交易所手动处理。')) return;
+      await fetch('/api/engine/stop?mode='+mode,{method:'POST'}).catch(()=>{});
+      setTimeout(()=>{ _formShown[mode]=false; loadPortfolio(mode); }, 1500);
+    }
     async function loadPortfolio(mode){
       const box = document.getElementById('view-'+mode);
       const meta = PF_META[mode];
-      let d;
-      try { d = await (await fetch('/api/portfolio?mode='+mode)).json(); }
-      catch(e){ box.innerHTML = `<div class="status">读取失败: ${e}</div>`; return; }
+      let d, status;
+      try {
+        [status, d] = await Promise.all([
+          fetch('/api/engine/status?mode='+mode).then(r=>r.json()).catch(()=>({running:false})),
+          fetch('/api/portfolio?mode='+mode).then(r=>r.json()).catch(()=>({running:false})),
+        ]);
+      } catch(e){ box.innerHTML = `<div class="status">读取失败: ${e}</div>`; return; }
 
-      if(!d.running){
-        box.innerHTML = `
-          <div class="controls"><div style="padding:6px 0">
-            <b style="font-size:16px">${meta.title}</b>
-            <div class="status" style="padding:8px 0">${meta.warn}</div></div></div>
-          <div class="pf-empty">
-            <p>引擎还没运行。在项目终端运行下面命令启动，本页会自动显示状态：</p>
-            <div class="term"><span class="cmd">python ${meta.run} --strategy confluence --top 60</span></div>
-            <p class="hint">${d.reason||''}</p>
-          </div>`;
+      const webRunning = !!status.running;
+      const hasData = !!d.running;
+      if(!webRunning && !hasData){
+        if(_formShown[mode]) return;             // 表单已在显示，别重绘（免得清空你填的值）
+        box.innerHTML = controlPanel(mode, status.error);
+        _formShown[mode] = true;
+        return;
+      }
+      _formShown[mode] = false;
+      if(webRunning && !hasData){                // 刚启动、首轮还没跑完
+        box.innerHTML = `<div class="controls" style="border:none"><div style="flex:1">
+          <b style="font-size:16px">${meta.title}</b> <span class="running-dot">● 运行中</span>
+          <button class="pf-stop" onclick="stopEngine('${mode}')">■ 停止</button></div></div>
+          <div class="pf-empty">⏳ 引擎已启动，正在拉取首轮全市场行情（几十个标的，需十几秒），
+            稍候本页自动显示持仓与实盘战绩…</div>`;
         return;
       }
 
@@ -501,6 +649,9 @@
         <div class="controls" style="border:none">
           <div style="flex:1">
             <b style="font-size:16px">${meta.title}</b>
+            <span class="running-dot">● 运行中</span>
+            ${webRunning?`<button class="pf-stop" onclick="stopEngine('${mode}')">■ 停止</button>`
+              :'<span class="muted" style="font-size:12px">（命令行启动的，停止请在终端 Ctrl+C）</span>'}
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
