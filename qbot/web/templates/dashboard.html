@@ -78,6 +78,10 @@
     .running-dot { color:var(--up); font-size:12px; font-weight:700; animation:pulse 1.4s ease-in-out infinite; }
     .pf-stop { background:var(--down); color:#fff; border:none; border-radius:7px;
       padding:5px 12px; font-size:13px; font-weight:600; cursor:pointer; margin-left:8px; }
+    .pf-config { background:transparent; color:var(--accent); border:1px solid var(--accent);
+      border-radius:7px; padding:4px 10px; font-size:12.5px; cursor:pointer; margin-left:8px; }
+    .ctl-cancel { background:transparent; color:var(--muted); border:1px solid var(--line);
+      border-radius:7px; padding:4px 10px; font-size:12.5px; cursor:pointer; margin-left:auto; }
     #charts { padding:0 24px 24px; }
     .plot { background:var(--panel); border:1px solid var(--line);
             border-radius:10px; margin-top:16px; }
@@ -425,7 +429,9 @@
         <path d="${d} L${w},${h} L0,${h} Z" fill="${col}" opacity="0.08"/></svg>`;
     }
     /* ---------- 一键启动控制面板（代替命令行） ---------- */
-    let _formShown = {};
+    let _formShown = {}, _forceForm = {};
+    function showConfigForm(mode){ _forceForm[mode]=true; _formShown[mode]=false; loadPortfolio(mode); }
+    function cancelConfig(mode){ _forceForm[mode]=false; _formShown[mode]=false; loadPortfolio(mode); }
     const PRESETS = {
       // 稳健(推荐)：合约3x双向、止损8%、关固定止盈、保本5%、移动止损6%、1分钟检测
       stable: {trade_type:'swap', leverage:3, allow_short:true, top:40, max_positions:4,
@@ -434,16 +440,18 @@
       safe:   {trade_type:'spot', leverage:1, allow_short:false, top:30, max_positions:5,
                poll:300, stop_loss:6, take_profit:15, breakeven:0, trailing_stop:0},
     };
-    function controlPanel(mode, error){
+    function controlPanel(mode, error, canCancel){
       const meta = PF_META[mode];
       const isCrypto = mode==='crypto';
       const isAshare = mode==='ashare';
       const broker = isCrypto ? 'okx' : 'paper';
       const errHtml = error ? `<div class="pf-err">上次启动失败：${error}</div>` : '';
+      const cancelBtn = canCancel ? `<button class="ctl-cancel" onclick="cancelConfig('${mode}')">✕ 返回</button>` : '';
+      const cliWarn = canCancel ? `<div class="ctl-note" style="color:var(--gold)">⚠️ 如果你已在【终端】用命令行启动了引擎，请先回终端按 Ctrl+C 停掉它，再从这里启动，避免两个引擎同时下单。</div>` : '';
       if(isAshare){
         return `<div class="ctl-wrap">
-          <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span></div>
-          ${errHtml}
+          <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span>${cancelBtn}</div>
+          ${errHtml}${cliWarn}
           <div class="ctl-grid">
             <label>扫描数量(只)<input type="number" id="f_top_${mode}" value="80"></label>
             <label>检测频率<select id="f_poll_${mode}">
@@ -455,8 +463,8 @@
         </div>`;
       }
       return `<div class="ctl-wrap">
-        <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span></div>
-        ${errHtml}
+        <div class="ctl-head"><b>${meta.title}</b><span class="status">${meta.warn}</span>${cancelBtn}</div>
+        ${errHtml}${cliWarn}
         <div class="ctl-presets">一键套用：
           <button onclick="applyPreset('${mode}','stable')">稳健(推荐)</button>
           <button onclick="applyPreset('${mode}','safe')">保守</button>
@@ -528,6 +536,7 @@
         return;
       }
       _formShown[mode]=false;
+      _forceForm[mode]=false;
       loadPortfolio(mode);          // 切到运行视图；tab 的 30 秒定时器会持续刷新
     }
     async function stopEngine(mode){
@@ -548,9 +557,9 @@
 
       const webRunning = !!status.running;
       const hasData = !!d.running;
-      if(!webRunning && !hasData){
+      if(_forceForm[mode] || (!webRunning && !hasData)){
         if(_formShown[mode]) return;             // 表单已在显示，别重绘（免得清空你填的值）
-        box.innerHTML = controlPanel(mode, status.error);
+        box.innerHTML = controlPanel(mode, status.error, _forceForm[mode]);
         _formShown[mode] = true;
         return;
       }
@@ -651,7 +660,8 @@
             <b style="font-size:16px">${meta.title}</b>
             <span class="running-dot">● 运行中</span>
             ${webRunning?`<button class="pf-stop" onclick="stopEngine('${mode}')">■ 停止</button>`
-              :'<span class="muted" style="font-size:12px">（命令行启动的，停止请在终端 Ctrl+C）</span>'}
+              :`<button class="pf-config" onclick="showConfigForm('${mode}')">⚙ 用面板启动/配置</button>
+                <span class="muted" style="font-size:12px">（当前由命令行启动）</span>`}
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
