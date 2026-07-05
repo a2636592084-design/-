@@ -53,6 +53,8 @@ def main() -> None:
                    help="被止损后隔多少个扫描周期才允许再进该标的(默认0=关，如 3)")
     p.add_argument("--no-exchange-stops", action="store_true",
                    help="关闭“开仓同步在OKX挂真实止损单”(默认开，合约建议保持开)")
+    p.add_argument("--all-coins", action="store_true",
+                   help="扫描全部币(默认只扫优质币白名单：主流+二三线，排除叙事币/妖币)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -75,7 +77,8 @@ def main() -> None:
     types = tuple(args.types) if args.types else \
         (("swap",) if args.trade_type == "swap" else ("spot",))
     print(f"列出 {args.market} 全市场标的（Top {args.top} · {'/'.join(types)}）...")
-    universe = get_universe(args.market, top=args.top, types=types, quote=args.quote)
+    universe = get_universe(args.market, top=args.top, types=types, quote=args.quote,
+                            quality=not args.all_coins)
     if not universe:
         sys.exit("未获取到任何标的，请检查网络/代理。")
 

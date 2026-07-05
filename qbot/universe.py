@@ -23,9 +23,31 @@ _ASHARE_FALLBACK = [
 ]
 
 
-def crypto_universe(types=("spot",), quote: str = "USDT", top: int = 120) -> list[str]:
+# 优质币白名单（主流 + 有实体/长历史的二三线；排除叙事币/妖币/纯meme/次新）。
+# 只做趋势策略吃得动的、有真实流动性与历史的币。可按需增删（告诉我名字即可）。
+QUALITY_CRYPTO = {
+    # 主流
+    "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "TRX", "LINK",
+    "DOT", "BCH", "LTC", "XLM", "TON",
+    # 老牌 L1 / L2
+    "NEAR", "ATOM", "APT", "ARB", "OP", "SUI", "ICP", "ALGO", "HBAR", "EGLD",
+    "ETC", "EOS", "XTZ", "FLOW", "KSM", "STX", "MINA", "CFX",
+    # 老牌 DeFi
+    "UNI", "AAVE", "MKR", "CRV", "LDO", "SNX", "COMP", "DYDX", "SUSHI",
+    "1INCH", "YFI", "RUNE", "INJ",
+    # 基础设施 / 其它有实体
+    "FIL", "GRT", "RENDER", "IMX", "THETA", "QNT", "KAVA", "ENS", "WOO",
+    "ZEC", "DASH", "LPT",
+    # 游戏 / 元宇宙（老牌）
+    "SAND", "MANA", "AXS", "GALA", "ENJ", "CHZ", "APE",
+}
+
+
+def crypto_universe(types=("spot",), quote: str = "USDT", top: int = 120,
+                    quality: bool = False) -> list[str]:
     """OKX 全市场加密标的，按 24h 成交额降序取 Top-N。
-    types: 可含 'spot'(现货) / 'swap'(永续合约) / 'future'(交割) 等 ccxt 类型。"""
+    types: 可含 'spot'(现货) / 'swap'(永续合约) / 'future'(交割) 等 ccxt 类型。
+    quality=True：只保留优质币白名单（主流+二三线，排除叙事币/妖币）。"""
     try:
         import ccxt
     except ImportError as e:  # pragma: no cover
@@ -45,6 +67,10 @@ def crypto_universe(types=("spot",), quote: str = "USDT", top: int = 120) -> lis
     markets = ex.load_markets()
     cands = [m for m in markets.values()
              if m.get("active") and m.get("type") in types and m.get("quote") == quote]
+    if quality:                                    # 只留优质币白名单
+        before = len(cands)
+        cands = [m for m in cands if str(m.get("base", "")).upper() in QUALITY_CRYPTO]
+        log.info("优质币过滤：%d → %d（排除叙事币/妖币/次新）", before, len(cands))
     # 用 ticker 的成交额排序（一次性拉全部 ticker）
     try:
         tickers = ex.fetch_tickers([m["symbol"] for m in cands])
@@ -87,10 +113,11 @@ def ashare_universe(top: int = 100) -> list[str]:
         return out[:top]
 
 
-def get_universe(market: str, top: int = 120, types=("spot",), quote: str = "USDT"):
+def get_universe(market: str, top: int = 120, types=("spot",), quote: str = "USDT",
+                 quality: bool = False):
     market = market.lower()
     if market == "crypto":
-        return crypto_universe(types=types, quote=quote, top=top)
+        return crypto_universe(types=types, quote=quote, top=top, quality=quality)
     if market == "ashare":
         return ashare_universe(top=top)
     if market == "synthetic":

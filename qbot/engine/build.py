@@ -18,7 +18,7 @@ DEFAULTS = {
     "quote": "USDT", "types": None,
     "top": 40, "max_positions": 6, "timeframe": "4h", "poll": 60,
     "stop_loss": 0.08, "take_profit": 0.0, "breakeven": 0.05, "trailing_stop": 0.06,
-    "atr_stop_mult": 2.5, "cooldown": 3, "exchange_stops": True,
+    "atr_stop_mult": 2.5, "cooldown": 3, "exchange_stops": True, "quality": True,
     "notify": False, "i_understand_risk": False, "capital": 100_000.0,
 }
 
@@ -39,7 +39,8 @@ def build_engine(cfg: dict) -> tuple[PortfolioEngine, dict]:
 
     types = tuple(c["types"]) if c["types"] else \
         (("swap",) if c["trade_type"] == "swap" else ("spot",))
-    universe = get_universe(market, top=int(c["top"]), types=types, quote=c["quote"])
+    universe = get_universe(market, top=int(c["top"]), types=types, quote=c["quote"],
+                            quality=bool(c["quality"]))
     if not universe:
         raise ValueError("未获取到任何标的：请检查网络/代理（Clash 是否开着）。")
 

@@ -322,6 +322,7 @@ class EngineCfg(BaseModel):
     atr_stop_mult: float = 2.5
     cooldown: int = 3
     exchange_stops: bool = True
+    quality: bool = True
     notify: bool = False
     i_understand_risk: bool = False
     capital: float = 100_000.0
@@ -364,7 +365,8 @@ def api_portfolio_backtest(cfg: EngineCfg) -> JSONResponse:
         if market == "ashare":
             c["timeframe"] = "1d"        # A股数据仅日线
         types = ("swap",) if c["trade_type"] == "swap" else ("spot",)
-        universe = get_universe(market, top=min(int(c["top"]), 30), types=types, quote="USDT")
+        universe = get_universe(market, top=min(int(c["top"]), 30), types=types,
+                                quote="USDT", quality=bool(c.get("quality", True)))
         if not universe:
             return JSONResponse({"error": "未取到标的，检查网络/代理。"})
         allow_short = bool(c["allow_short"]) and c["strategy"] == "confluence"
