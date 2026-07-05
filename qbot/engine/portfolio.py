@@ -259,15 +259,19 @@ class PortfolioEngine:
                 continue
             px = prices.get(sym, p.avg_price)
             is_long = p.amount > 0
-            # 方向感知的浮盈：多头 (现价/成本-1)，空头 (成本/现价-1)
+            # 方向感知的浮盈率：多头 (现价/成本-1)，空头 (成本/现价-1)
             if p.avg_price:
                 pnl = (px / p.avg_price - 1) if is_long else (p.avg_price / px - 1)
             else:
                 pnl = 0.0
+            value = abs(p.amount) * px                       # 持仓金额(市值/名义, USDT)
+            # 盈亏金额：合约优先用交易所给的浮动盈亏，否则按 带符号数量×(现价-成本)
+            pnl_amt = getattr(p, "unrealized_pnl", 0.0) or (p.amount * (px - p.avg_price))
             positions.append({
                 "symbol": sym, "side": "long" if is_long else "short",
                 "amount": round(abs(p.amount), 6),
                 "avg_price": round(p.avg_price, 6), "price": round(px, 6),
+                "value": round(value, 2), "pnl_amt": round(pnl_amt, 2),
                 "pnl_pct": round(pnl * 100, 2),
             })
         # 合约：给持仓补上强平价 + 资金费率预警
