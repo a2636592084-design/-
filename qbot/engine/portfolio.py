@@ -49,9 +49,10 @@ class PortfolioEngine:
         demo: bool = True,
         execute: bool = True,    # False=只出信号不下单（A股实盘）
         notify: bool = False,
-        stop_loss: float = 0.08,      # 硬止损：单仓亏损达此比例强制平仓(0=关)
-        take_profit: float = 0.25,    # 硬止盈：单仓盈利达此比例强制平仓(0=关)
-        trailing_stop: float = 0.0,   # 移动止损：从峰值回撤此比例平仓(0=关)
+        stop_loss: float = 0.08,       # 初始硬止损：开仓即在成本±此比例设保护线(0=关)
+        take_profit: float = 0.25,     # 硬止盈：单仓盈利达此比例强制平仓(0=关)
+        trailing_stop: float = 0.0,    # 移动止损：止损线跟随峰值、留此比例回撤空间(0=关)
+        breakeven_trigger: float = 0.0,  # 保本上移：盈利达此比例即把止损抬到成本(0=关)
     ):
         self.mode = mode
         self.market = market
@@ -69,13 +70,15 @@ class PortfolioEngine:
         self.stop_loss = stop_loss
         self.take_profit = take_profit
         self.trailing_stop = trailing_stop
+        self.breakeven_trigger = breakeven_trigger
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
         self._untradeable: set[str] = set()   # 记住下不了单的标的(如模拟盘不支持)，不再重试
         self.journal = TradeJournal(mode)     # 交易日志 + 真实资金曲线 + 实盘统计
         self._funding: dict = {}              # 合约资金费率缓存 {symbol: {...}}
-        self._peak_pnl: dict = {}             # 移动止损：每仓自开仓以来的最佳浮盈率
+        self._stop_price: dict = {}           # 每仓当前保护止损价(只升不降、锁盈)
+        self._peak_price: dict = {}           # 每仓自开仓以来的有利方向极值价
         self._liq: dict = {}                  # 合约强平价缓存 {symbol: price}
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
@@ -141,33 +144,75 @@ class PortfolioEngine:
         self._maybe_notify(scan, held)
         return self._write_state(scan, trades)
 
+    def stop_level(self, sym: str, entry: float, is_long: bool) -> float | None:
+        """某仓当前的保护止损价（已把保本/移动的上移算进去）。供面板显示。"""
+        if not entry or not self.stop_loss:
+            return self._stop_price.get(sym)
+        init = entry * (1 - self.stop_loss) if is_long else entry * (1 + self.stop_loss)
+        return self._stop_price.get(sym, init)
+
     def _apply_stops(self, prices, account, held, trades) -> None:
-        """价格止损/止盈/移动止损：独立于信号，先于一切执行。
-        这是"信号还没反转但价格已经打脸"时的硬保护——杠杆合约的保命线。"""
-        for s in list(self._peak_pnl):        # 清理已平仓标的的峰值记录
+        """价格止损/止盈/移动止损：独立于信号、每轮最高优先级。
+
+        止损线【只升不降】随利润上移(锁盈)：
+          · 初始：成本 ∓ stop_loss（多单在下方、空单在上方）。
+          · 保本上移：盈利达 breakeven_trigger → 止损抬到成本（此后不亏）。
+          · 移动止损：止损跟随峰值、留 trailing_stop 回撤空间（利润越走越锁）。
+        这是"信号还没反转但价格已经打脸/或已到手利润"时的硬保护。"""
+        for s in list(self._stop_price):      # 清理已平仓标的的记录
             if s not in held:
-                self._peak_pnl.pop(s, None)
+                self._stop_price.pop(s, None)
+                self._peak_price.pop(s, None)
         for sym in list(held):
             p = account.positions[sym]
             entry, px = p.avg_price, prices.get(sym)
             if not entry or not px or entry <= 0:
                 continue
             is_long = p.amount > 0
-            pnl = (px / entry - 1) if is_long else (entry / px - 1)   # 方向感知浮盈率
-            best = max(self._peak_pnl.get(sym, pnl), pnl)
-            self._peak_pnl[sym] = best
+            # 初始化：保护止损 + 峰值
+            if sym not in self._stop_price:
+                self._stop_price[sym] = (entry * (1 - self.stop_loss) if is_long
+                                         else entry * (1 + self.stop_loss)) if self.stop_loss \
+                    else (0.0 if is_long else float("inf"))
+                self._peak_price[sym] = px
+            peak = self._peak_price[sym] = (max(self._peak_price[sym], px) if is_long
+                                            else min(self._peak_price[sym], px))
+            stop = self._stop_price[sym]
+            raise_ = (lambda a, b: max(a, b)) if is_long else (lambda a, b: min(a, b))
+            # 保本上移：盈利达触发比例 → 止损抬到成本
+            if self.breakeven_trigger:
+                trig = entry * (1 + self.breakeven_trigger) if is_long \
+                    else entry * (1 - self.breakeven_trigger)
+                if (px >= trig) if is_long else (px <= trig):
+                    stop = raise_(stop, entry)
+            # 移动止损：止损跟随峰值、留回撤空间
+            if self.trailing_stop:
+                trail = peak * (1 - self.trailing_stop) if is_long \
+                    else peak * (1 + self.trailing_stop)
+                stop = raise_(stop, trail)
+            self._stop_price[sym] = stop
+
+            # 判定平仓
+            init = entry * (1 - self.stop_loss) if is_long else entry * (1 + self.stop_loss)
+            locked = (stop >= entry) if is_long else (stop <= entry)          # 已保本/锁盈
+            moved = (stop > init + 1e-9) if is_long else (stop < init - 1e-9)  # 止损线上移过
+            hit_stop = (px <= stop) if is_long else (px >= stop)
             reason = None
-            if self.stop_loss and pnl <= -self.stop_loss:
-                reason = f"止损{-self.stop_loss*100:.0f}%"
-            elif self.take_profit and pnl >= self.take_profit:
-                reason = f"止盈{self.take_profit*100:.0f}%"
-            elif self.trailing_stop and best > 0 and (best - pnl) >= self.trailing_stop:
-                reason = f"移动止损(峰值{best*100:.1f}%回撤{self.trailing_stop*100:.0f}%)"
+            if (self.stop_loss or self.trailing_stop or self.breakeven_trigger) and hit_stop:
+                reason = ("移动止损(锁盈)" if locked else
+                          "移动止损" if moved else f"止损{self.stop_loss*100:.0f}%")
+            elif self.take_profit:
+                tp = entry * (1 + self.take_profit) if is_long else entry * (1 - self.take_profit)
+                if (px >= tp) if is_long else (px <= tp):
+                    reason = f"止盈{self.take_profit*100:.0f}%"
             if reason:
-                log.info("[%s] %s 触发%s（浮盈%.2f%%）→ 平仓", self.mode, sym, reason, pnl * 100)
+                pnl = (px / entry - 1) if is_long else (entry / px - 1)
+                log.info("[%s] %s 触发%s（浮盈%.2f%% · 止损线%.4f）→ 平仓",
+                         self.mode, sym, reason, pnl * 100, stop)
                 if self._close(sym, account, prices, trades, reason=reason):
                     held.discard(sym)
-                    self._peak_pnl.pop(sym, None)
+                    self._stop_price.pop(sym, None)
+                    self._peak_price.pop(sym, None)
 
     def _rebalance(self, scan, prices, account, equity, held) -> list[dict]:
         """双向组合再平衡：多空皆可，多指标发现方向反转即平仓。"""
@@ -304,14 +349,18 @@ class PortfolioEngine:
             value = abs(p.amount) * px                       # 持仓金额(市值/名义, USDT)
             # 盈亏金额：合约优先用交易所给的浮动盈亏，否则按 带符号数量×(现价-成本)
             pnl_amt = getattr(p, "unrealized_pnl", 0.0) or (p.amount * (px - p.avg_price))
-            # 每仓止损价/止盈价（按成本 + 方向算出的实际触发价）
+            # 每仓止损价(取当前已上移的实时止损线)/止盈价
             e = p.avg_price
-            if is_long:
-                stop_px = e * (1 - self.stop_loss) if self.stop_loss else None
-                tgt_px = e * (1 + self.take_profit) if self.take_profit else None
+            stop_px = self.stop_level(sym, e, is_long)
+            if stop_px in (0.0, float("inf")):
+                stop_px = None
+            if self.take_profit:
+                tgt_px = e * (1 + self.take_profit) if is_long else e * (1 - self.take_profit)
             else:
-                stop_px = e * (1 + self.stop_loss) if self.stop_loss else None
-                tgt_px = e * (1 - self.take_profit) if self.take_profit else None
+                tgt_px = None
+            # 止损是否已到成本或更好(多≥成本/空≤成本) → 已保本/锁盈
+            stop_locked = bool(stop_px and (
+                (is_long and stop_px >= e) or (not is_long and stop_px <= e)))
             positions.append({
                 "symbol": sym, "side": "long" if is_long else "short",
                 "amount": round(abs(p.amount), 6),
@@ -320,6 +369,7 @@ class PortfolioEngine:
                 "pnl_pct": round(pnl * 100, 2),
                 "stop_price": round(stop_px, 6) if stop_px else None,
                 "target_price": round(tgt_px, 6) if tgt_px else None,
+                "stop_locked": stop_locked,
             })
         # 合约：给持仓补上强平价 + 资金费率预警
         for p in positions:
@@ -349,6 +399,7 @@ class PortfolioEngine:
             "stop_loss_pct": round(self.stop_loss * 100, 1) if self.stop_loss else 0,
             "take_profit_pct": round(self.take_profit * 100, 1) if self.take_profit else 0,
             "trailing_stop_pct": round(self.trailing_stop * 100, 1) if self.trailing_stop else 0,
+            "breakeven_pct": round(self.breakeven_trigger * 100, 1) if self.breakeven_trigger else 0,
             "daily_halted": self.risk.daily_halted,
             "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),
             "max_daily_loss_pct": round(self.risk.cfg.max_daily_loss * 100, 1),

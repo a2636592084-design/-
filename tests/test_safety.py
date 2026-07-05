@@ -132,6 +132,20 @@ def test_trailing_stop_closes_after_peak(tmpdir_journal):
     assert "X" not in held and "移动止损" in trades[-1]["reason"]
 
 
+def test_stop_ratchets_up_and_locks_profit(tmpdir_journal):
+    """盈利后止损上移锁盈：涨上去后止损抬到成本上方，回落触发时锁住利润。"""
+    eng = _engine(AllLong(), stop_loss=0.08, take_profit=0.0,
+                  trailing_stop=0.05, breakeven_trigger=0.05)
+    _open_long(eng.broker, "X", 100, 10)
+    entry = eng.broker.get_account().positions["X"].avg_price
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 110}, acc, held, trades)     # 峰值 +10%
+    assert eng.stop_level("X", entry, True) > entry     # 止损已上移到成本上方(锁盈)
+    assert "X" in held and not trades                   # 还没回落，不平
+    eng._apply_stops({"X": 104}, acc, held, trades)     # 回落跌破上移后的止损
+    assert "X" not in held and "锁盈" in trades[-1]["reason"]
+
+
 def test_stops_disabled_hold_through_loss(tmpdir_journal):
     eng = _engine(AllLong(), stop_loss=0.0, take_profit=0.0, trailing_stop=0.0)
     _open_long(eng.broker, "X", 100, 10)

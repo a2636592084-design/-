@@ -44,7 +44,9 @@ def main() -> None:
     p.add_argument("--stop-loss", type=float, default=0.08, help="硬止损比例(默认8%%，0=关)")
     p.add_argument("--take-profit", type=float, default=0.25, help="硬止盈比例(默认25%%，0=关)")
     p.add_argument("--trailing-stop", type=float, default=0.0,
-                   help="移动止损：从峰值回撤比例平仓(默认关，如 0.05=回撤5%%)")
+                   help="移动止损：止损跟随峰值留此回撤空间(默认关，如 0.05=留5%%)")
+    p.add_argument("--breakeven", type=float, default=0.0,
+                   help="保本上移：盈利达此比例即把止损抬到成本(默认关，如 0.05)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -97,7 +99,7 @@ def main() -> None:
         timeframe=args.timeframe, poll_seconds=args.poll, demo=demo,
         execute=execute, notify=args.notify,
         stop_loss=args.stop_loss, take_profit=args.take_profit,
-        trailing_stop=args.trailing_stop,
+        trailing_stop=args.trailing_stop, breakeven_trigger=args.breakeven,
     )
 
     if args.once:

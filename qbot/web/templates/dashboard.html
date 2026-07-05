@@ -431,7 +431,8 @@
         }
         const fmt = x => x==null?'—':Number(x).toLocaleString(undefined,{maximumFractionDigits:2});
         const pnlCls = (p.pnl_amt||0)>=0?'pos':'neg';
-        const sltp = `<span class="neg">${p.stop_price!=null?fmt(p.stop_price):'—'}</span>`
+        const slColor = p.stop_locked ? 'pos' : 'neg';   // 止损已上移锁盈→转绿
+        const sltp = `<span class="${slColor}">${p.stop_price!=null?fmt(p.stop_price):'—'}${p.stop_locked?' 🔒':''}</span>`
                    + ` / <span class="pos">${p.target_price!=null?fmt(p.target_price):'—'}</span>`;
         return `<tr><td class="sym">${p.symbol} ${dir}</td>
           <td>${p.price}</td><td>${p.avg_price}</td>
@@ -503,7 +504,7 @@
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
-            ${d.execute&&(d.stop_loss_pct||d.take_profit_pct)?`· 风控 ${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.trailing_stop_pct?' 移动止损'+d.trailing_stop_pct+'%':''}`:''}
+            ${d.execute&&(d.stop_loss_pct||d.take_profit_pct)?`· 风控 ${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.breakeven_pct?' 保本@'+d.breakeven_pct+'%':''}${d.trailing_stop_pct?' 移动止损'+d.trailing_stop_pct+'%':''}`:''}
             · 更新 ${d.ts}
             ${d.halted?'<span class="neg"> · 🛑组合熔断(清仓停开)</span>':''}
             ${d.daily_halted?`<span class="neg"> · 🛑单日亏损熔断(今日${d.daily_loss_pct}%·停开新仓)</span>`
