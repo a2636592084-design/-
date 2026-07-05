@@ -37,7 +37,19 @@
     .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
     .card .k { font-size:12px; color:var(--muted); }
     .card .v { font-size:20px; font-weight:700; margin-top:4px; }
-    .pos { color:var(--up); } .neg { color:var(--down); }
+    .pos { color:var(--up); } .neg { color:var(--down); } .muted { color:var(--muted); }
+    /* 实盘战绩块 */
+    .live-perf { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+      padding:14px; margin-bottom:14px; }
+    .lp-head { font-size:15px; font-weight:700; margin-bottom:10px; }
+    .lp-grid { display:grid; grid-template-columns:1.3fr 2fr; gap:16px; align-items:center; }
+    @media (max-width:760px){ .lp-grid { grid-template-columns:1fr; } }
+    .lp-chart { min-width:0; }
+    .lp-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    @media (max-width:520px){ .lp-stats { grid-template-columns:repeat(2,1fr); } }
+    .lp-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; text-align:center; }
+    .lp-card .k { font-size:11px; color:var(--muted); }
+    .lp-card .v { font-size:18px; font-weight:700; margin-top:3px; }
     #charts { padding:0 24px 24px; }
     .plot { background:var(--panel); border:1px solid var(--line);
             border-radius:10px; margin-top:16px; }
@@ -371,6 +383,19 @@
       crypto: {title:'量化实盘 加密', warn:'⚠️ 真钱风险 · 需配好 OKX key · 默认模拟盘(demo) · 先跑稳再上真钱', run:'run_portfolio.py --mode crypto --market crypto --broker okx'},
     };
 
+    // 内联 SVG 迷你资金曲线（不依赖任何外部库，离线也能画）
+    function sparkline(curve, w=420, h=90){
+      const pts=(curve||[]).map(c=>c.equity).filter(v=>v!=null);
+      if(pts.length<2) return '<div class="muted" style="font-size:12px">资金曲线数据不足（引擎多跑几轮）</div>';
+      const min=Math.min(...pts), max=Math.max(...pts), rng=(max-min)||1;
+      const step=w/(pts.length-1);
+      const d=pts.map((v,i)=>`${i?'L':'M'}${(i*step).toFixed(1)},${(h-(v-min)/rng*h).toFixed(1)}`).join(' ');
+      const up=pts[pts.length-1]>=pts[0];
+      const col=up?'#26a69a':'#ef5350';
+      return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:${h}px">
+        <path d="${d}" fill="none" stroke="${col}" stroke-width="1.6"/>
+        <path d="${d} L${w},${h} L0,${h} Z" fill="${col}" opacity="0.08"/></svg>`;
+    }
     async function loadPortfolio(mode){
       const box = document.getElementById('view-'+mode);
       const meta = PF_META[mode];
@@ -391,13 +416,24 @@
         return;
       }
 
+      const hasLiq = (d.positions||[]).some(p=>p.liq_price!=null);
       const posRows = (d.positions||[]).map(p=>{
         const dir = p.side==='short' ? '<span class="sig short">🔴空</span>' : '<span class="sig buy">🟢多</span>';
+        // 合约：强平价 + 距离预警（<15%红）；资金费付费提示
+        let liqCell='';
+        if(hasLiq){
+          const near = p.liq_dist_pct!=null && p.liq_dist_pct<15;
+          const fund = p.funding_rate!=null
+            ? ` <span class="${p.funding_paying?'neg':'pos'}" title="资金费率">费${(p.funding_rate*100).toFixed(3)}%${p.funding_paying?'↘付':'↗收'}</span>` : '';
+          liqCell = p.liq_price!=null
+            ? `<td class="${near?'neg':''}">${p.liq_price}${p.liq_dist_pct!=null?` <span class="${near?'neg':'muted'}">(${p.liq_dist_pct}%)</span>`:''}${fund}</td>`
+            : `<td>—</td>`;
+        }
         return `<tr><td class="sym">${p.symbol} ${dir}</td>
           <td>${p.price}</td><td>${p.avg_price}</td>
           <td class="${p.pnl_pct>=0?'pos':'neg'}">${p.pnl_pct>=0?'+':''}${p.pnl_pct}%</td>
-          <td>${p.amount}</td></tr>`; }).join('') ||
-        `<tr><td colspan="5" style="color:var(--muted)">当前无持仓</td></tr>`;
+          <td>${p.amount}</td>${liqCell}</tr>`; }).join('') ||
+        `<tr><td colspan="${hasLiq?6:5}" style="color:var(--muted)">当前无持仓</td></tr>`;
 
       const scanRows = (d.scan||[]).slice(0,15).map(r=>{
         const sig = r.short ? '<span class="sig short">🔴做空</span>'
@@ -420,13 +456,30 @@
           <td class="pos">+${Number(r.strength).toFixed(2)}</td></tr>`).join('') ||
         `<tr><td colspan="3" style="color:var(--muted)">当前无做多信号（空仓观望）</td></tr>`;
       const holdBlock = d.execute
-        ? `<h3 class="pf-h">当前持仓</h3>
-           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>浮盈</th><th>数量</th></tr></thead>
+        ? `<h3 class="pf-h">当前持仓${hasLiq?'<span class="muted" style="font-size:12px;font-weight:400"> · 强平价越近越危险，红色=距现价&lt;15%</span>':''}</h3>
+           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>浮盈</th><th>数量</th>${hasLiq?'<th>强平价(距离)/资金费</th>':''}</tr></thead>
              <tbody>${posRows}</tbody></table>`
         : `<h3 class="pf-h">建议买入（手动下单 · 共振分最高的前 ${d.max_positions} 个做多信号）</h3>
            <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>共振分</th></tr></thead>
              <tbody>${suggestRows}</tbody></table>`;
 
+      // 实盘战绩（真实成交统计 + 迷你资金曲线），只在真交易模式显示
+      const L = d.live || {};
+      const pf = L.profit_factor==null ? (L.wins>0 && L.losses===0 ? '∞' : '—') : L.profit_factor;
+      const liveBlock = d.execute ? `
+        <div class="live-perf">
+          <div class="lp-head">📒 实盘战绩 <span class="muted" style="font-weight:400;font-size:12px">真实成交统计·非回测 · 已平仓 ${L.closed_trades||0} 笔</span></div>
+          <div class="lp-grid">
+            <div class="lp-chart">${sparkline(L.equity_curve)}
+              <div class="muted" style="font-size:11px;text-align:center;margin-top:2px">真实资金曲线</div></div>
+            <div class="lp-stats">
+              <div class="lp-card"><div class="k">真实胜率</div><div class="v">${L.win_rate!=null?L.win_rate+'%':'—'}</div></div>
+              <div class="lp-card"><div class="k">已实现盈亏</div><div class="v ${(L.realized_pnl||0)>=0?'pos':'neg'}">${(L.realized_pnl||0)>=0?'+':''}${L.realized_pnl||0}</div></div>
+              <div class="lp-card"><div class="k">盈亏比</div><div class="v">${pf}</div></div>
+              <div class="lp-card"><div class="k">真实最大回撤</div><div class="v neg">${L.max_drawdown||0}%</div></div>
+            </div>
+          </div>
+        </div>` : '';
       box.innerHTML = `
         <div class="controls" style="border:none">
           <div style="flex:1">
@@ -434,7 +487,9 @@
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size} · 更新 ${d.ts}
-            ${d.halted?'<span class="neg"> · 🛑组合熔断</span>':''}
+            ${d.halted?'<span class="neg"> · 🛑组合熔断(清仓停开)</span>':''}
+            ${d.daily_halted?`<span class="neg"> · 🛑单日亏损熔断(今日${d.daily_loss_pct}%·停开新仓)</span>`
+              :(d.daily_loss_pct!=null?` · 今日<span class="${d.daily_loss_pct>=0?'pos':'neg'}">${d.daily_loss_pct>=0?'+':''}${d.daily_loss_pct}%</span>(熔断线-${d.max_daily_loss_pct}%)`:'')}
             ${d.execute?'':'<span style="color:var(--gold)"> · 仅信号(手动)</span>'}</div>
         </div>
         <div class="metrics">
@@ -445,6 +500,7 @@
             : `<div class="card"><div class="k">做多信号</div><div class="v">${(d.scan||[]).filter(r=>r.long).length}</div></div>`}
           <div class="card"><div class="k">全市场</div><div class="v">${d.universe_size}</div></div>
         </div>
+        ${liveBlock}
         <div class="scanwrap">
           ${holdBlock}
           <h3 class="pf-h">全市场扫描 · Top 信号（按共振分/强度）</h3>

@@ -28,6 +28,8 @@ class Position:
     symbol: str
     amount: float = 0.0
     avg_price: float = 0.0
+    liquidation_price: float = 0.0   # 合约强平价（现货为0）
+    unrealized_pnl: float = 0.0      # 合约浮动盈亏（USDT）
 
 
 @dataclass

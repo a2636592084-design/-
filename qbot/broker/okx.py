@@ -107,7 +107,23 @@ class OKXBroker(Broker):
                 base = contracts * csize
                 signed = base if p.get("side") == "long" else -base
                 positions[sym] = Position(
-                    sym, amount=signed, avg_price=float(p.get("entryPrice") or 0.0))
+                    sym, amount=signed, avg_price=float(p.get("entryPrice") or 0.0),
+                    liquidation_price=float(p.get("liquidationPrice") or 0.0),
+                    unrealized_pnl=float(p.get("unrealizedPnl") or 0.0))
         except Exception as e:  # noqa: BLE001
             log.warning("读取合约持仓失败: %s", str(e)[:100])
         return Account(cash=free, positions=positions, equity_override=total)
+
+    def fetch_funding(self, symbols: list[str]) -> dict:
+        """合约资金费率：{symbol: {rate, next_ts}}。永续每 8 小时结算一次。"""
+        out: dict[str, dict] = {}
+        if self.trade_type != "swap":
+            return out
+        for sym in symbols:
+            try:
+                fr = self.exchange.fetch_funding_rate(sym)
+                out[sym] = {"rate": fr.get("fundingRate"),
+                            "next_ts": fr.get("fundingDatetime")}
+            except Exception as e:  # noqa: BLE001
+                log.debug("资金费率 %s 拉取失败: %s", sym, str(e)[:60])
+        return out

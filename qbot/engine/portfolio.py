@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..broker.base import Broker, Order
 from ..data.loader import get_ohlcv
+from ..journal import TradeJournal
 from ..logger import get_logger
 from ..risk.manager import RiskManager
 from ..strategies.base import Strategy
@@ -66,6 +67,9 @@ class PortfolioEngine:
         self._held_prev: set[str] = set()
         self._notifiers = None
         self._untradeable: set[str] = set()   # 记住下不了单的标的(如模拟盘不支持)，不再重试
+        self.journal = TradeJournal(mode)     # 交易日志 + 真实资金曲线 + 实盘统计
+        self._funding: dict = {}              # 合约资金费率缓存 {symbol: {...}}
+        self._liq: dict = {}                  # 合约强平价缓存 {symbol: price}
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
     def _scan(self) -> list[dict]:
@@ -106,7 +110,17 @@ class PortfolioEngine:
         account = self.broker.get_account()
         equity = account.equity(prices)
         self.risk.update_equity(equity)
+        self.journal.record_equity(equity)        # 真实资金曲线
         held = {s for s, p in account.positions.items() if abs(p.amount) > 1e-12}
+
+        # 合约：读强平价 + 资金费率（供面板预警）。失败不影响主流程。
+        self._liq = {s: p.liquidation_price for s, p in account.positions.items()
+                     if getattr(p, "liquidation_price", 0.0)}
+        if held and hasattr(self.broker, "fetch_funding"):
+            try:
+                self._funding = self.broker.fetch_funding(list(held))
+            except Exception as e:  # noqa: BLE001
+                log.debug("资金费率拉取失败: %s", e)
 
         trades = []
         if self.execute:
@@ -142,6 +156,11 @@ class PortfolioEngine:
                 if self._close(sym, account, prices, trades):
                     held.discard(sym)
 
+        # 单日亏损熔断：允许平仓(上一步已做)，但今日不再开新仓（次日复位）
+        if self.risk.daily_halted:
+            log.warning("单日亏损熔断：今日停开新仓，已有持仓保留（明日自动复位）。")
+            return trades
+
         # 2) 开仓：按共振分绝对值排序，填满剩余仓位（多头买入开、空头卖出开）
         weight = min(1.0 / self.max_positions, self.risk.cfg.max_position_per_symbol)
         candidates = sorted(
@@ -173,8 +192,12 @@ class PortfolioEngine:
     def _safe_submit(self, sym, side, amt, price, trades) -> bool:
         """下单，失败只跳过该标的、不中断整轮。返回是否成功。"""
         try:
-            self.broker.submit(Order(sym, side, amt))
-            trades.append(self._trade(side, sym, amt, price))
+            fill = self.broker.submit(Order(sym, side, amt))
+            px = float(getattr(fill, "price", 0.0)) or price
+            fee = float(getattr(fill, "fee", 0.0) or 0.0)
+            filled = float(getattr(fill, "amount", 0.0)) or amt
+            self.journal.record_fill(side, sym, filled, px, fee)   # 记入交易日志
+            trades.append(self._trade(side, sym, filled, px))
             return True
         except Exception as e:  # noqa: BLE001
             msg = str(e)
@@ -242,6 +265,21 @@ class PortfolioEngine:
                 "avg_price": round(p.avg_price, 6), "price": round(px, 6),
                 "pnl_pct": round(pnl * 100, 2),
             })
+        # 合约：给持仓补上强平价 + 资金费率预警
+        for p in positions:
+            info = self._funding.get(p["symbol"])
+            liq = self._liq.get(p["symbol"]) if hasattr(self, "_liq") else None
+            if liq:
+                p["liq_price"] = round(liq, 6)
+                if p["price"]:
+                    p["liq_dist_pct"] = round(abs(p["price"] - liq) / p["price"] * 100, 2)
+            if info:
+                p["funding_rate"] = info.get("rate")
+                # 资金费方向：多头付费当 rate>0；空头付费当 rate<0（持仓与费率同号=付费）
+                rate = info.get("rate") or 0.0
+                paying = (p["side"] == "long" and rate > 0) or (p["side"] == "short" and rate < 0)
+                p["funding_paying"] = bool(paying)
+
         top_scan = sorted(scan, key=lambda r: r["strength"], reverse=True)[:30]
         for r in top_scan:
             r["held"] = r["symbol"] in {p["symbol"] for p in positions}
@@ -252,9 +290,13 @@ class PortfolioEngine:
             "equity": round(self.state.equity, 2),
             "cash": round(account.cash, 2),
             "max_positions": self.max_positions, "halted": self.risk.halted,
+            "daily_halted": self.risk.daily_halted,
+            "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),
+            "max_daily_loss_pct": round(self.risk.cfg.max_daily_loss * 100, 1),
             "universe_size": len(self.universe), "scanned": len(scan),
             "positions": positions, "scan": top_scan,
             "recent_trades": list(reversed(self.state.recent_trades[-20:])),
+            "live": self.journal.stats(),      # 真实资金曲线 + 胜率/盈亏比/回撤
         }
         _STATE_DIR.mkdir(exist_ok=True)
         (_STATE_DIR / f"portfolio_{self.mode}.json").write_text(

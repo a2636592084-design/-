@@ -15,7 +15,8 @@ class RiskConfig:
     max_position_per_symbol: float = 0.20   # 单标的最多占总资金 20%
     stop_loss_pct: float = 0.08             # 单笔止损 8%
     take_profit_pct: float = 0.25           # 单笔止盈 25%（可选）
-    max_portfolio_drawdown: float = 0.20    # 组合回撤 20% 熔断
+    max_portfolio_drawdown: float = 0.20    # 组合回撤 20% 熔断（累计峰值回撤）
+    max_daily_loss: float = 0.10            # 单日亏损 10% → 当天停开新仓（次日复位）
     risk_per_trade: float = 0.01            # 每笔最多亏损总资金的 1%（仓位反推）
 
 
@@ -31,18 +32,42 @@ class RiskManager:
         self.cfg = config or RiskConfig()
         self._halted = False
         self._peak_equity = 0.0
+        self._day: str | None = None       # 当前交易日（YYYY-MM-DD）
+        self._day_start_equity = 0.0       # 当日开盘权益（用于单日亏损熔断）
+        self._daily_halted = False
 
-    def update_equity(self, equity: float) -> None:
-        """跟踪资金曲线峰值，触发组合级熔断。"""
+    def update_equity(self, equity: float, today: str | None = None) -> None:
+        """跟踪峰值 → 组合熔断；跟踪当日起点 → 单日亏损熔断（跨日自动复位）。"""
+        if today is None:
+            from datetime import date
+            today = date.today().isoformat()
+        if self._day != today:            # 新的一天：复位单日熔断与起点
+            self._day = today
+            self._day_start_equity = equity
+            self._daily_halted = False
+
         self._peak_equity = max(self._peak_equity, equity)
-        if self._peak_equity > 0:
-            dd = equity / self._peak_equity - 1.0
-            if dd <= -self.cfg.max_portfolio_drawdown:
-                self._halted = True
+        if self._peak_equity > 0 and equity / self._peak_equity - 1.0 <= -self.cfg.max_portfolio_drawdown:
+            self._halted = True
+        if self._day_start_equity > 0 and \
+                equity / self._day_start_equity - 1.0 <= -self.cfg.max_daily_loss:
+            self._daily_halted = True
 
     @property
     def halted(self) -> bool:
+        """累计回撤熔断（清仓+停开新仓）。"""
         return self._halted
+
+    @property
+    def daily_halted(self) -> bool:
+        """单日亏损熔断（当天停开新仓，不强制清仓，次日复位）。"""
+        return self._daily_halted
+
+    def daily_loss_pct(self, equity: float) -> float:
+        """当日盈亏百分比（负为亏）。"""
+        if self._day_start_equity <= 0:
+            return 0.0
+        return round((equity / self._day_start_equity - 1.0) * 100, 2)
 
     def position_size_by_risk(self, price: float, stop_price: float, equity: float) -> float:
         """按"每笔只赌 1% 本金"反推可买数量。这是职业交易员的仓位管理核心。"""
