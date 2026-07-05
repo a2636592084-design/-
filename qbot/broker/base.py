@@ -29,7 +29,9 @@ class Position:
     amount: float = 0.0
     avg_price: float = 0.0
     liquidation_price: float = 0.0   # 合约强平价（现货为0）
-    unrealized_pnl: float = 0.0      # 合约浮动盈亏（USDT）
+    unrealized_pnl: float = 0.0      # 合约浮动盈亏（USDT，交易所口径）
+    mark_price: float = 0.0          # 合约标记价（交易所口径，与App一致）
+    pnl_pct_exch: float = 0.0        # 合约浮盈百分比（交易所口径，含杠杆）
 
 
 @dataclass

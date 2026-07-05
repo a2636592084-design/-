@@ -130,7 +130,9 @@ class OKXBroker(Broker):
                 positions[sym] = Position(
                     sym, amount=signed, avg_price=float(p.get("entryPrice") or 0.0),
                     liquidation_price=float(p.get("liquidationPrice") or 0.0),
-                    unrealized_pnl=float(p.get("unrealizedPnl") or 0.0))
+                    unrealized_pnl=float(p.get("unrealizedPnl") or 0.0),
+                    mark_price=float(p.get("markPrice") or 0.0),
+                    pnl_pct_exch=float(p.get("percentage") or 0.0))
         except Exception as e:  # noqa: BLE001
             log.warning("读取合约持仓失败: %s", str(e)[:100])
         return Account(cash=free, positions=positions, equity_override=total)

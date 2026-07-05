@@ -382,16 +382,22 @@ class PortfolioEngine:
         for sym, p in account.positions.items():
             if abs(p.amount) <= 1e-12:
                 continue
-            px = prices.get(sym, p.avg_price)
+            # 现价：合约优先用交易所【标记价】(与OKX App一致)，否则用扫描价
+            mark = getattr(p, "mark_price", 0.0)
+            px = mark or prices.get(sym, p.avg_price)
             is_long = p.amount > 0
-            # 方向感知的浮盈率：多头 (现价/成本-1)，空头 (成本/现价-1)
-            if p.avg_price:
+            value = abs(p.amount) * px                       # 持仓金额(市值/名义, USDT)
+            # 盈亏金额：合约用交易所口径浮动盈亏(和App一致)，否则按 带符号数量×(现价-成本)
+            upnl = getattr(p, "unrealized_pnl", 0.0)
+            pnl_amt = upnl or (p.amount * (px - p.avg_price))
+            # 浮盈率：合约用交易所口径(含杠杆，和App一致)，否则用原始价差
+            pct_exch = getattr(p, "pnl_pct_exch", 0.0)
+            if pct_exch:
+                pnl = pct_exch / 100.0
+            elif p.avg_price:
                 pnl = (px / p.avg_price - 1) if is_long else (p.avg_price / px - 1)
             else:
                 pnl = 0.0
-            value = abs(p.amount) * px                       # 持仓金额(市值/名义, USDT)
-            # 盈亏金额：合约优先用交易所给的浮动盈亏，否则按 带符号数量×(现价-成本)
-            pnl_amt = getattr(p, "unrealized_pnl", 0.0) or (p.amount * (px - p.avg_price))
             # 每仓止损价(取当前已上移的实时止损线)/止盈价
             e = p.avg_price
             stop_px = self.stop_level(sym, e, is_long)

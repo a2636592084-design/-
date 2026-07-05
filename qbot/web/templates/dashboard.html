@@ -78,6 +78,8 @@
     .running-dot { color:var(--up); font-size:12px; font-weight:700; animation:pulse 1.4s ease-in-out infinite; }
     .pf-stop { background:var(--down); color:#fff; border:none; border-radius:7px;
       padding:5px 12px; font-size:13px; font-weight:600; cursor:pointer; margin-left:8px; }
+    .stop-warn { background:rgba(214,165,69,.10); border:1px solid var(--gold); color:var(--gold);
+      border-radius:8px; padding:8px 12px; font-size:12.5px; margin:6px 0 10px; line-height:1.5; }
     .pf-config { background:transparent; color:var(--accent); border:1px solid var(--accent);
       border-radius:7px; padding:4px 10px; font-size:12.5px; cursor:pointer; margin-left:8px; }
     .ctl-cancel { background:transparent; color:var(--muted); border:1px solid var(--line);
@@ -713,8 +715,9 @@
           <td class="pos">+${Number(r.strength).toFixed(2)}</td></tr>`).join('') ||
         `<tr><td colspan="3" style="color:var(--muted)">当前无做多信号（空仓观望）</td></tr>`;
       const holdBlock = d.execute
-        ? `<h3 class="pf-h">当前持仓${hasLiq?'<span class="muted" style="font-size:12px;font-weight:400"> · 强平价越近越危险，红色=距现价&lt;15%</span>':''}</h3>
-           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>持仓金额</th><th>数量</th><th>盈亏</th><th>止损/止盈</th>${hasLiq?'<th>强平价(距离)/资金费</th>':''}</tr></thead>
+        ? `<h3 class="pf-h">当前持仓${hasLiq?'<span class="muted" style="font-size:12px;font-weight:400"> · 现价/盈亏取自OKX标记价(与App一致) · 强平价红色=距现价&lt;15%</span>':''}</h3>
+           ${hasLiq?'<div class="stop-warn">⚠️ 「止损/止盈」是<b>本程序监控执行</b>的（每轮检查、触发即市价平仓），<b>不是挂在 OKX 上的委托单</b>——程序停了/断网了就没有这个保护。要交易所级的真实止损单，找我加。</div>':''}
+           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>成本</th><th>持仓金额</th><th>数量</th><th>盈亏</th><th>止损/止盈(程序)</th>${hasLiq?'<th>强平价(距离)/资金费</th>':''}</tr></thead>
              <tbody>${posRows}</tbody></table>`
         : `<h3 class="pf-h">建议买入（手动下单 · 共振分最高的前 ${d.max_positions} 个做多信号）</h3>
            <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>共振分</th></tr></thead>
