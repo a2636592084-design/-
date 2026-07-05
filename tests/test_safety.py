@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 import qbot.journal as J
+from qbot.broker.base import Order
 from qbot.broker.paper import PaperBroker
 from qbot.engine.portfolio import PortfolioEngine
 from qbot.journal import TradeJournal
@@ -98,6 +99,45 @@ def test_engine_writes_live_stats(tmpdir_journal):
     assert st["live"]["equity_curve"]                  # 有资金曲线快照
     # 成交被记入日志
     assert (tmpdir_journal / "journal_safetytest.jsonl").exists()
+
+
+def _open_long(broker, sym, px, amt):
+    broker.set_price(sym, px)
+    broker.submit(Order(sym, "buy", amt))
+
+
+def test_stop_loss_force_closes(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0.08, take_profit=0.0)
+    _open_long(eng.broker, "X", 100, 10)
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 90}, acc, held, trades)      # -10% < -8%
+    assert "X" not in held and "止损" in trades[0]["reason"]
+
+
+def test_take_profit_force_closes(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0.08, take_profit=0.25)
+    _open_long(eng.broker, "X", 100, 10)
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 130}, acc, held, trades)     # +30% > 25%
+    assert "X" not in held and "止盈" in trades[0]["reason"]
+
+
+def test_trailing_stop_closes_after_peak(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0.0, take_profit=0.0, trailing_stop=0.05)
+    _open_long(eng.broker, "X", 100, 10)
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 120}, acc, held, trades)     # 峰值 +20%，不平
+    assert "X" in held and not trades
+    eng._apply_stops({"X": 113}, acc, held, trades)     # 从峰值回撤 ~7% > 5%
+    assert "X" not in held and "移动止损" in trades[-1]["reason"]
+
+
+def test_stops_disabled_hold_through_loss(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0.0, take_profit=0.0, trailing_stop=0.0)
+    _open_long(eng.broker, "X", 100, 10)
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 50}, acc, held, trades)      # -50% 但止损关闭
+    assert "X" in held and not trades
 
 
 def test_daily_halt_blocks_new_opens(tmpdir_journal):

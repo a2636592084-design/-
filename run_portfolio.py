@@ -41,6 +41,10 @@ def main() -> None:
     p.add_argument("--allow-short", action="store_true", help="允许做空(双向，合约用)")
     p.add_argument("--top", type=int, default=60, help="扫描标的数上限(按成交额)")
     p.add_argument("--max-positions", type=int, default=12, help="最多同时持仓数")
+    p.add_argument("--stop-loss", type=float, default=0.08, help="硬止损比例(默认8%%，0=关)")
+    p.add_argument("--take-profit", type=float, default=0.25, help="硬止盈比例(默认25%%，0=关)")
+    p.add_argument("--trailing-stop", type=float, default=0.0,
+                   help="移动止损：从峰值回撤比例平仓(默认关，如 0.05=回撤5%%)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -92,6 +96,8 @@ def main() -> None:
         broker=broker, risk=risk, max_positions=args.max_positions,
         timeframe=args.timeframe, poll_seconds=args.poll, demo=demo,
         execute=execute, notify=args.notify,
+        stop_loss=args.stop_loss, take_profit=args.take_profit,
+        trailing_stop=args.trailing_stop,
     )
 
     if args.once:

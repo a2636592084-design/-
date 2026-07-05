@@ -49,6 +49,9 @@ class PortfolioEngine:
         demo: bool = True,
         execute: bool = True,    # False=只出信号不下单（A股实盘）
         notify: bool = False,
+        stop_loss: float = 0.08,      # 硬止损：单仓亏损达此比例强制平仓(0=关)
+        take_profit: float = 0.25,    # 硬止盈：单仓盈利达此比例强制平仓(0=关)
+        trailing_stop: float = 0.0,   # 移动止损：从峰值回撤此比例平仓(0=关)
     ):
         self.mode = mode
         self.market = market
@@ -63,12 +66,16 @@ class PortfolioEngine:
         self.demo = demo
         self.execute = execute
         self.notify = notify
+        self.stop_loss = stop_loss
+        self.take_profit = take_profit
+        self.trailing_stop = trailing_stop
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
         self._untradeable: set[str] = set()   # 记住下不了单的标的(如模拟盘不支持)，不再重试
         self.journal = TradeJournal(mode)     # 交易日志 + 真实资金曲线 + 实盘统计
         self._funding: dict = {}              # 合约资金费率缓存 {symbol: {...}}
+        self._peak_pnl: dict = {}             # 移动止损：每仓自开仓以来的最佳浮盈率
         self._liq: dict = {}                  # 合约强平价缓存 {symbol: price}
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
@@ -134,13 +141,43 @@ class PortfolioEngine:
         self._maybe_notify(scan, held)
         return self._write_state(scan, trades)
 
+    def _apply_stops(self, prices, account, held, trades) -> None:
+        """价格止损/止盈/移动止损：独立于信号，先于一切执行。
+        这是"信号还没反转但价格已经打脸"时的硬保护——杠杆合约的保命线。"""
+        for s in list(self._peak_pnl):        # 清理已平仓标的的峰值记录
+            if s not in held:
+                self._peak_pnl.pop(s, None)
+        for sym in list(held):
+            p = account.positions[sym]
+            entry, px = p.avg_price, prices.get(sym)
+            if not entry or not px or entry <= 0:
+                continue
+            is_long = p.amount > 0
+            pnl = (px / entry - 1) if is_long else (entry / px - 1)   # 方向感知浮盈率
+            best = max(self._peak_pnl.get(sym, pnl), pnl)
+            self._peak_pnl[sym] = best
+            reason = None
+            if self.stop_loss and pnl <= -self.stop_loss:
+                reason = f"止损{-self.stop_loss*100:.0f}%"
+            elif self.take_profit and pnl >= self.take_profit:
+                reason = f"止盈{self.take_profit*100:.0f}%"
+            elif self.trailing_stop and best > 0 and (best - pnl) >= self.trailing_stop:
+                reason = f"移动止损(峰值{best*100:.1f}%回撤{self.trailing_stop*100:.0f}%)"
+            if reason:
+                log.info("[%s] %s 触发%s（浮盈%.2f%%）→ 平仓", self.mode, sym, reason, pnl * 100)
+                if self._close(sym, account, prices, trades, reason=reason):
+                    held.discard(sym)
+                    self._peak_pnl.pop(sym, None)
+
     def _rebalance(self, scan, prices, account, equity, held) -> list[dict]:
         """双向组合再平衡：多空皆可，多指标发现方向反转即平仓。"""
         trades = []
+        # 价格止损/止盈/移动止损：最高优先级，先于信号与开仓（熔断除外）
+        self._apply_stops(prices, account, held, trades)
         # 组合回撤熔断：全部平仓、停开新仓
         if self.risk.halted:
             for sym in list(held):
-                self._close(sym, account, prices, trades)
+                self._close(sym, account, prices, trades, reason="组合熔断")
             log.warning("组合回撤熔断已触发：全部平仓、停开新仓。")
             return trades
 
@@ -153,7 +190,7 @@ class PortfolioEngine:
             cur = account.positions[sym].amount
             cur_side = 1 if cur > 0 else -1
             if desired.get(sym, 0) != cur_side:
-                if self._close(sym, account, prices, trades):
+                if self._close(sym, account, prices, trades, reason="信号变化"):
                     held.discard(sym)
 
         # 单日亏损熔断：允许平仓(上一步已做)，但今日不再开新仓（次日复位）
@@ -179,17 +216,17 @@ class PortfolioEngine:
                 held.add(sym)
         return trades
 
-    def _close(self, sym, account, prices, trades) -> bool:
+    def _close(self, sym, account, prices, trades, reason="信号") -> bool:
         """平掉某标的的现有仓位（多单卖出平、空单买入平）。"""
         cur = account.positions[sym].amount
         px = prices.get(sym, account.positions[sym].avg_price)
         if cur > 0:
-            return self._safe_submit(sym, "sell", cur, px, trades)
+            return self._safe_submit(sym, "sell", cur, px, trades, reason=reason)
         if cur < 0:
-            return self._safe_submit(sym, "buy", -cur, px, trades)
+            return self._safe_submit(sym, "buy", -cur, px, trades, reason=reason)
         return True
 
-    def _safe_submit(self, sym, side, amt, price, trades) -> bool:
+    def _safe_submit(self, sym, side, amt, price, trades, reason="") -> bool:
         """下单，失败只跳过该标的、不中断整轮。返回是否成功。"""
         try:
             fill = self.broker.submit(Order(sym, side, amt))
@@ -197,7 +234,7 @@ class PortfolioEngine:
             fee = float(getattr(fill, "fee", 0.0) or 0.0)
             filled = float(getattr(fill, "amount", 0.0)) or amt
             self.journal.record_fill(side, sym, filled, px, fee)   # 记入交易日志
-            trades.append(self._trade(side, sym, filled, px))
+            trades.append(self._trade(side, sym, filled, px, reason))
             return True
         except Exception as e:  # noqa: BLE001
             msg = str(e)
@@ -213,10 +250,10 @@ class PortfolioEngine:
                 log.warning("%s 下单失败：%s（跳过）", sym, msg[:100])
             return False
 
-    def _trade(self, side, sym, amt, price) -> dict:
+    def _trade(self, side, sym, amt, price, reason="") -> dict:
         rec = {"ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                "side": side, "symbol": sym, "amount": round(amt, 6),
-               "price": round(price, 6)}
+               "price": round(price, 6), "reason": reason}
         self.state.recent_trades.append(rec)
         self.state.recent_trades = self.state.recent_trades[-40:]
         log.info("[%s] %s %s x%.6f @ %.6f", self.mode, side, sym, amt, price)
@@ -299,6 +336,9 @@ class PortfolioEngine:
             "equity": round(self.state.equity, 2),
             "cash": round(account.cash, 2),
             "max_positions": self.max_positions, "halted": self.risk.halted,
+            "stop_loss_pct": round(self.stop_loss * 100, 1) if self.stop_loss else 0,
+            "take_profit_pct": round(self.take_profit * 100, 1) if self.take_profit else 0,
+            "trailing_stop_pct": round(self.trailing_stop * 100, 1) if self.trailing_stop else 0,
             "daily_halted": self.risk.daily_halted,
             "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),
             "max_daily_loss_pct": round(self.risk.cfg.max_daily_loss * 100, 1),

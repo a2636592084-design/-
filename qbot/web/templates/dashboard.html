@@ -449,11 +449,19 @@
           <td style="text-align:right">${sig}</td></tr>`;
       }).join('');
 
+      const reasonTag = r=>{
+        if(!r) return '';
+        if(r.includes('止损')) return `<span class="sig short">${r}</span>`;
+        if(r.includes('止盈')) return `<span class="sig buy">${r}</span>`;
+        if(r.includes('熔断')) return `<span class="sig short">${r}</span>`;
+        return `<span class="muted">${r}</span>`;
+      };
       const tradeRows = (d.recent_trades||[]).map(t=>`
         <tr><td style="color:var(--muted)">${t.ts}</td>
           <td class="${t.side==='buy'?'pos':'neg'}">${t.side==='buy'?'买入':'卖出'}</td>
-          <td class="sym">${t.symbol}</td><td>${t.price}</td><td>${t.amount}</td></tr>`).join('') ||
-        `<tr><td colspan="5" style="color:var(--muted)">暂无成交</td></tr>`;
+          <td class="sym">${t.symbol}</td><td>${t.price}</td><td>${t.amount}</td>
+          <td>${reasonTag(t.reason)}</td></tr>`).join('') ||
+        `<tr><td colspan="6" style="color:var(--muted)">暂无成交</td></tr>`;
 
       // 只出信号模式(A股)：把该买的清单直接列出来，而不是显示空持仓
       const suggestRows = (d.scan||[]).filter(r=>r.long).slice(0, d.max_positions).map(r=>`
@@ -491,7 +499,9 @@
             <b style="font-size:16px">${meta.title}</b>
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
-          <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size} · 更新 ${d.ts}
+          <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
+            ${d.execute&&(d.stop_loss_pct||d.take_profit_pct)?`· 风控 ${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.trailing_stop_pct?' 移动止损'+d.trailing_stop_pct+'%':''}`:''}
+            · 更新 ${d.ts}
             ${d.halted?'<span class="neg"> · 🛑组合熔断(清仓停开)</span>':''}
             ${d.daily_halted?`<span class="neg"> · 🛑单日亏损熔断(今日${d.daily_loss_pct}%·停开新仓)</span>`
               :(d.daily_loss_pct!=null?` · 今日<span class="${d.daily_loss_pct>=0?'pos':'neg'}">${d.daily_loss_pct>=0?'+':''}${d.daily_loss_pct}%</span>(熔断线-${d.max_daily_loss_pct}%)`:'')}
@@ -512,7 +522,7 @@
           <table class="scan num"><thead><tr><th>标的</th><th>现价</th><th>强度</th><th>信号</th></tr></thead>
             <tbody>${scanRows}</tbody></table>
           <h3 class="pf-h">近期成交</h3>
-          <table class="scan num"><thead><tr><th>时间</th><th>方向</th><th>标的</th><th>价格</th><th>数量</th></tr></thead>
+          <table class="scan num"><thead><tr><th>时间</th><th>方向</th><th>标的</th><th>价格</th><th>数量</th><th>原因</th></tr></thead>
             <tbody>${tradeRows}</tbody></table>
         </div>`;
     }
