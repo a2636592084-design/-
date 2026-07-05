@@ -137,6 +137,35 @@ class OKXBroker(Broker):
             log.warning("读取合约持仓失败: %s", str(e)[:100])
         return Account(cash=free, positions=positions, equity_override=total)
 
+    def place_stop(self, symbol: str, close_side: str, base_amount: float,
+                   trigger_price: float) -> str | None:
+        """在交易所挂一个【reduceOnly 止损市价条件单】(算法单)。
+
+        close_side: 平多=sell / 平空=buy。触发价到了 OKX 会自动市价平仓——
+        即使本程序已停止/断网，仓位也有保护。返回算法单 id。
+        """
+        if self.trade_type != "swap":
+            return None
+        market = self.exchange.market(symbol)
+        csize = float(market.get("contractSize") or 1.0)
+        contracts = float(self.exchange.amount_to_precision(
+            symbol, base_amount / csize if csize else base_amount))
+        if contracts <= 0:
+            return None
+        trig = float(self.exchange.price_to_precision(symbol, trigger_price))
+        params = {"reduceOnly": True, "tdMode": self.margin_mode, "stopLossPrice": trig}
+        o = self.exchange.create_order(symbol, "market", close_side, contracts, None, params)
+        return o.get("id")
+
+    def cancel_stop(self, symbol: str, algo_id: str) -> None:
+        """撤掉一个止损条件单(止损上移或平仓时用)。"""
+        if not algo_id:
+            return
+        try:
+            self.exchange.cancel_order(algo_id, symbol, params={"trigger": True})
+        except Exception:  # noqa: BLE001
+            self.exchange.cancel_order(algo_id, symbol)   # 兜底：普通撤单
+
     def fetch_funding(self, symbols: list[str]) -> dict:
         """合约资金费率：{symbol: {rate, next_ts}}。永续每 8 小时结算一次。"""
         out: dict[str, dict] = {}

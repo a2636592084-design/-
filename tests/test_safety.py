@@ -176,6 +176,55 @@ def test_cooldown_set_on_stopout(tmpdir_journal):
     assert eng.state.ticks < eng._cooldown_until["X"]   # 仍在冷却期内
 
 
+class _AllFlat(Strategy):
+    name = "all_flat"
+    def generate_positions(self, df):
+        return pd.Series(0.0, index=df.index)
+
+
+class MockSwapBroker(PaperBroker):
+    """带交易所止损单接口的模拟合约 broker，用于测试引擎挂/撤真实止损单。"""
+    trade_type = "swap"
+
+    def __init__(self):
+        super().__init__(cash=100_000)
+        self.placed, self.cancelled, self.stops, self._n = [], [], {}, 0
+
+    def place_stop(self, symbol, close_side, base_amount, trigger_price):
+        self._n += 1
+        aid = f"s{self._n}"
+        self.stops[aid] = symbol
+        self.placed.append((symbol, close_side, round(trigger_price, 4)))
+        return aid
+
+    def cancel_stop(self, symbol, algo_id):
+        self.cancelled.append(algo_id)
+        self.stops.pop(algo_id, None)
+
+
+def test_exchange_stops_placed_on_open_and_cancelled_on_close(tmpdir_journal):
+    b = MockSwapBroker()
+    eng = PortfolioEngine(
+        mode="x", market="synthetic", universe=["S0", "S1"], strategy=AllLong(),
+        broker=b, risk=RiskManager(RiskConfig()), max_positions=2, lookback=200,
+        execute=True, stop_loss=0.08, atr_stop_mult=0, exchange_stops=True)
+    eng.tick()
+    assert b.placed and eng._exch_stops              # 开仓即在交易所挂了真实止损单
+    eng.strategy = _AllFlat()
+    eng.tick()
+    assert b.cancelled and not eng._exch_stops        # 平仓后撤掉残单
+
+
+def test_exchange_stops_off_places_nothing(tmpdir_journal):
+    b = MockSwapBroker()
+    eng = PortfolioEngine(
+        mode="x", market="synthetic", universe=["S0"], strategy=AllLong(),
+        broker=b, risk=RiskManager(RiskConfig()), max_positions=1, lookback=200,
+        execute=True, stop_loss=0.08, exchange_stops=False)
+    eng.tick()
+    assert not b.placed                               # 关掉后不挂交易所止损单
+
+
 def test_stops_disabled_hold_through_loss(tmpdir_journal):
     eng = _engine(AllLong(), stop_loss=0.0, take_profit=0.0, trailing_stop=0.0)
     _open_long(eng.broker, "X", 100, 10)

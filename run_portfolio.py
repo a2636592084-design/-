@@ -51,6 +51,8 @@ def main() -> None:
                    help="ATR自适应止损倍数(>0则覆盖固定止损、并按波动定仓位，如 2.5)")
     p.add_argument("--cooldown", type=int, default=0,
                    help="被止损后隔多少个扫描周期才允许再进该标的(默认0=关，如 3)")
+    p.add_argument("--no-exchange-stops", action="store_true",
+                   help="关闭“开仓同步在OKX挂真实止损单”(默认开，合约建议保持开)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -105,6 +107,7 @@ def main() -> None:
         stop_loss=args.stop_loss, take_profit=args.take_profit,
         trailing_stop=args.trailing_stop, breakeven_trigger=args.breakeven,
         atr_stop_mult=args.atr_stop, cooldown=args.cooldown,
+        exchange_stops=not args.no_exchange_stops,
     )
 
     if args.once:

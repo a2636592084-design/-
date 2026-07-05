@@ -55,6 +55,7 @@ class PortfolioEngine:
         breakeven_trigger: float = 0.0,  # 保本上移：盈利达此比例即把止损抬到成本(0=关)
         atr_stop_mult: float = 0.0,    # ATR自适应止损：止损距离=此倍数×ATR(>0则覆盖固定%，并按波动定仓位)
         cooldown: int = 0,             # 冷却：某标的被止损后，隔此多少个扫描周期才允许再进(0=关)
+        exchange_stops: bool = True,   # 合约：开仓同步在OKX挂真实止损条件单(程序停了也有保护)
     ):
         self.mode = mode
         self.market = market
@@ -75,6 +76,7 @@ class PortfolioEngine:
         self.breakeven_trigger = breakeven_trigger
         self.atr_stop_mult = atr_stop_mult
         self.cooldown = cooldown
+        self.exchange_stops = exchange_stops
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
@@ -86,6 +88,7 @@ class PortfolioEngine:
         self._liq: dict = {}                  # 合约强平价缓存 {symbol: price}
         self._atr: dict = {}                  # 每标的最新 ATR(绝对值)，供ATR止损/波动定仓位
         self._cooldown_until: dict = {}       # {symbol: 到第几个tick前不再进}
+        self._exch_stops: dict = {}           # 交易所真实止损单 {symbol: {id, level, side}}
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
     def _scan(self) -> list[dict]:
@@ -149,6 +152,11 @@ class PortfolioEngine:
         trades = []
         if self.execute:
             trades = self._rebalance(scan, prices, account, equity, held)
+            # 收尾：把交易所真实止损单与当前持仓/软件止损位同步（新仓补挂、上移改单、残单撤销）
+            try:
+                self._sync_exch_stops(self.broker.get_account())
+            except Exception as e:  # noqa: BLE001
+                log.debug("同步交易所止损单失败: %s", e)
         else:
             # 只出信号不下单（A股实盘=手动）：用扫描结果推导"建议持有"清单
             pass
@@ -288,9 +296,17 @@ class PortfolioEngine:
             amt = self._size(sym, price, equity, weight, r["target"] > 0)
             if amt <= 0:
                 continue
-            side = "buy" if r["target"] > 0 else "sell"   # 卖出=开空
+            is_long = r["target"] > 0
+            side = "buy" if is_long else "sell"           # 卖出=开空
             if self._safe_submit(sym, side, amt, price, trades):
                 held.add(sym)
+                # 预置软件止损并立刻在交易所挂真实止损单（避免新仓裸奔）
+                dist = self._stop_dist(sym, price)
+                if dist:
+                    stop0 = price - dist if is_long else price + dist
+                    self._stop_price[sym] = stop0
+                    self._peak_price[sym] = price
+                    self._place_exch_stop(sym, is_long, amt, stop0)
         return trades
 
     def _size(self, sym, price, equity, weight, is_long) -> float:
@@ -303,6 +319,50 @@ class PortfolioEngine:
             stop_price = price - stop_dist if is_long else price + stop_dist
             return self.risk.position_size_by_risk(price, stop_price, equity)
         return (equity * weight) / price
+
+    # ---------- 交易所级真实止损单（程序停了也有保护） ----------
+    def _stops_supported(self) -> bool:
+        return bool(self.exchange_stops and hasattr(self.broker, "place_stop")
+                    and getattr(self.broker, "trade_type", "spot") == "swap")
+
+    def _place_exch_stop(self, sym, is_long, amt, stop) -> None:
+        """在交易所挂/改真实止损单：先撤旧单再挂新单。失败不影响交易(软件止损兜底)。"""
+        if not self._stops_supported() or not stop or amt <= 0:
+            return
+        close_side = "sell" if is_long else "buy"     # 平多=卖、平空=买
+        try:
+            old = self._exch_stops.get(sym)
+            if old and old.get("id"):
+                self.broker.cancel_stop(sym, old["id"])
+            aid = self.broker.place_stop(sym, close_side, abs(amt), stop)
+            if aid:
+                self._exch_stops[sym] = {"id": aid, "level": float(stop), "side": close_side}
+                log.info("[%s] %s 已在OKX挂真实止损单 @ %.6f (id=%s)", self.mode, sym, stop, aid)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[%s] %s 交易所止损单操作失败: %s（软件止损仍生效）",
+                        self.mode, sym, str(e)[:90])
+
+    def _sync_exch_stops(self, account) -> None:
+        """每轮收尾：给新仓补挂止损、把已上移的止损同步改单、撤掉已平仓的残单。"""
+        if not self._stops_supported():
+            return
+        held = {s for s, p in account.positions.items() if abs(p.amount) > 1e-12}
+        for s in list(self._exch_stops):              # 已不持有 → 撤残单
+            if s not in held:
+                try:
+                    self.broker.cancel_stop(s, self._exch_stops[s].get("id"))
+                except Exception:  # noqa: BLE001
+                    pass
+                self._exch_stops.pop(s, None)
+        for s in held:
+            stop = self._stop_price.get(s)
+            if not stop or stop in (0.0, float("inf")):
+                continue
+            p = account.positions[s]
+            cur = self._exch_stops.get(s)
+            # 只在无单 或 止损位移动>0.2% 时改单，避免频繁撤挂
+            if (not cur) or abs(stop - cur["level"]) / max(abs(stop), 1e-9) > 0.002:
+                self._place_exch_stop(s, p.amount > 0, abs(p.amount), stop)
 
     def _close(self, sym, account, prices, trades, reason="信号") -> bool:
         """平掉某标的的现有仓位（多单卖出平、空单买入平）。"""

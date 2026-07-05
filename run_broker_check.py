@@ -154,6 +154,23 @@ def main() -> None:
         _p(WARN, f"读回持仓异常：{str(e)[:100]}")
         pos = None
 
+    # 5b) 交易所真实止损单自检（挂 → 撤）
+    if args.trade_type == "swap":
+        stop_px = price * 0.90                     # 测试止损价放到现价下方 10%(不会立刻触发)
+        try:
+            aid = broker.place_stop(sym, "sell", amt, stop_px)
+            if aid:
+                _p(OK, f"交易所真实止损单已挂：{sym} 触发价≈{stop_px:.4f}（id={aid}）→ 程序停了也有保护")
+                time.sleep(1)
+                broker.cancel_stop(sym, aid)
+                _p(OK, "测试止损单已撤销。")
+            else:
+                _p(WARN, "止损单返回空 id（可能未挂上），请上 OKX 委托列表确认。")
+        except Exception as e:  # noqa: BLE001
+            _p(WARN, f"交易所止损单自检失败：{str(e)[:120]}")
+            _p(WARN, "多半是条件单参数/持仓模式差异。把这行报错发我，我据实校准。"
+                     "（不影响平仓，软件止损仍生效）")
+
     try:
         close_amt = abs(pos.amount) if pos and pos.amount else amt
         broker.submit(Order(sym, "sell", close_amt))

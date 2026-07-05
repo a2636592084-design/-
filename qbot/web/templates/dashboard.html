@@ -523,6 +523,9 @@
             <label>被止损冷却(周期)<input type="number" id="f_cd_${mode}" value="3"
               title="某币被止损后，隔几个扫描周期才允许再进，防止震荡里反复挨打"></label>
           </div>
+          <label class="ctl-chk" style="margin-top:10px;color:var(--up)">
+            <input type="checkbox" id="f_exstop_${mode}" checked>
+            🛡️ 开仓同步在 OKX 挂【真实止损单】（强烈建议开：程序停了/断网了交易所也会自动止损）</label>
         </div>
         ${isCrypto?`<label class="ctl-chk ctl-riskack"><input type="checkbox" id="f_ack_${mode}">
           我已了解：只有当 .env 里 OKX_DEMO=0 时才动真钱，我愿承担杠杆爆仓风险
@@ -568,6 +571,7 @@
         take_profit: isAtr ? 0 : (+g('f_tp',0))/100,
         trailing_stop: isAtr ? 0 : (+g('f_ts',0))/100,
         breakeven: (+g('f_be',0))/100,
+        exchange_stops: g('f_exstop',true)!==false,
         i_understand_risk: !!g('f_ack',false),
       };
     }

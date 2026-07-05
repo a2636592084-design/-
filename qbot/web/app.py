@@ -321,6 +321,7 @@ class EngineCfg(BaseModel):
     trailing_stop: float = 0.06
     atr_stop_mult: float = 2.5
     cooldown: int = 3
+    exchange_stops: bool = True
     notify: bool = False
     i_understand_risk: bool = False
     capital: float = 100_000.0
