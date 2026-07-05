@@ -82,6 +82,19 @@
       border-radius:7px; padding:4px 10px; font-size:12.5px; cursor:pointer; margin-left:8px; }
     .ctl-cancel { background:transparent; color:var(--muted); border:1px solid var(--line);
       border-radius:7px; padding:4px 10px; font-size:12.5px; cursor:pointer; margin-left:auto; }
+    .ctl-btns { display:flex; gap:10px; margin-top:8px; }
+    .ctl-bt { flex:1; background:transparent; color:var(--accent); border:1px solid var(--accent);
+      border-radius:10px; padding:13px; font-size:15px; font-weight:700; cursor:pointer; }
+    .ctl-start { flex:1.4; }
+    .bt-result:not(:empty) { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+    .bt-loading { color:var(--gold); font-size:14px; text-align:center; padding:16px; }
+    .bt-head { font-size:13px; color:var(--muted); margin-bottom:8px; }
+    .bt-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:8px; margin:10px 0; }
+    .bt-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px; text-align:center; }
+    .bt-card .k { font-size:11px; color:var(--muted); }
+    .bt-card .v { font-size:16px; font-weight:700; margin-top:2px; }
+    .bt-verdict { font-size:14px; font-weight:600; padding:10px 12px; border-radius:8px;
+      background:var(--panel); border:1px solid var(--line); margin-top:8px; }
     #charts { padding:0 24px 24px; }
     .plot { background:var(--panel); border:1px solid var(--line);
             border-radius:10px; margin-top:16px; }
@@ -461,7 +474,11 @@
               <option value="900">15分钟</option></select></label>
           </div>
           <div class="ctl-note">A股只出【建议买入】信号，不自动下单，你手动执行。</div>
-          <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动扫描</button>
+          <div class="ctl-btns">
+            <button class="ctl-bt" onclick="runPortfolioBacktest('${mode}')">🔬 先回测这套配置</button>
+            <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动扫描</button>
+          </div>
+          <div id="bt_result_${mode}" class="bt-result"></div>
         </div>`;
       }
       return `<div class="ctl-wrap">
@@ -508,7 +525,11 @@
         ${isCrypto?`<label class="ctl-chk ctl-riskack"><input type="checkbox" id="f_ack_${mode}">
           我已了解：只有当 .env 里 OKX_DEMO=0 时才动真钱，我愿承担杠杆爆仓风险
           <span class="muted">（默认模拟盘不用勾）</span></label>`:''}
-        <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动 ${broker==='okx'?'(OKX)':'(模拟盘)'}</button>
+        <div class="ctl-btns">
+          <button class="ctl-bt" onclick="runPortfolioBacktest('${mode}')">🔬 先回测这套配置</button>
+          <button class="ctl-start" onclick="startEngine('${mode}')">▶ 启动 ${broker==='okx'?'(OKX)':'(模拟盘)'}</button>
+        </div>
+        <div id="bt_result_${mode}" class="bt-result"></div>
       </div>`;
     }
     function toggleLev(mode){
@@ -531,17 +552,15 @@
       set('f_sl',p.stop_loss); set('f_tp',p.take_profit); set('f_be',p.be); set('f_ts',p.trailing_stop);
       toggleLev(mode); toggleSlMode(mode);
     }
-    async function startEngine(mode){
+    function gatherCfg(mode){
       const g=(id,d)=>{const el=document.getElementById(id+'_'+mode); return el?(el.type==='checkbox'?el.checked:el.value):d;};
-      const slMode = g('f_slmode','atr');
-      const isAtr = slMode==='atr';
-      const cfg = {
+      const isAtr = g('f_slmode','atr')==='atr';
+      return {
         mode, broker: mode==='crypto'?'okx':'paper',
         market: mode==='ashare'?'ashare':'crypto',
         trade_type: g('f_tt','spot'), leverage: +g('f_lev',3), allow_short: !!g('f_short',false),
         top: +g('f_top',40), max_positions: +g('f_max',6), poll: +g('f_poll',60),
         timeframe: g('f_tf','4h'), cooldown: +g('f_cd',0),
-        // ATR模式：初始止损与移动止损由ATR接管(固定%项归0)；固定模式：用百分比
         atr_stop_mult: isAtr ? (+g('f_atr',2.5)) : 0,
         stop_loss: isAtr ? 0 : (+g('f_sl',0))/100,
         take_profit: isAtr ? 0 : (+g('f_tp',0))/100,
@@ -549,6 +568,44 @@
         breakeven: (+g('f_be',0))/100,
         i_understand_risk: !!g('f_ack',false),
       };
+    }
+    function btVerdict(m){
+      if(m.num_trades<10) return '⚠️ 成交太少、样本不足，这个结果参考价值低。';
+      const pf = m.profit_factor==null ? 99 : m.profit_factor;
+      if(m.total_return>0 && m.max_drawdown>-0.25 && pf>1.2)
+        return '✅ 这套配置在这段历史上是赚钱的、回撤可控。但历史≠未来，仍需模拟盘验证再谈真钱。';
+      if(m.total_return>0) return '🟡 微赚，但回撤或盈亏比一般。建议调参数（周期/ATR倍数/持仓数）再测。';
+      return '❌ 这套配置在这段历史上是亏的。别急着上，先换参数（周期、ATR倍数、扫描范围）重新回测。';
+    }
+    async function runPortfolioBacktest(mode){
+      const cfg = gatherCfg(mode);
+      const box = document.getElementById('bt_result_'+mode);
+      box.innerHTML = '<div class="bt-loading">🔬 回测中…正在拉取历史数据、复现全套规则（约 30–60 秒，别关页面）…</div>';
+      let r; try{ r = await (await fetch('/api/portfolio_backtest',{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify(cfg)})).json(); }
+      catch(e){ box.innerHTML='<div class="pf-err">回测请求失败</div>'; return; }
+      if(r.error){ box.innerHTML=`<div class="pf-err">回测失败：${r.error}</div>`; return; }
+      const m=r.metrics, pctf=x=>(x*100).toFixed(1)+'%';
+      const pf = m.profit_factor==null?'∞':m.profit_factor.toFixed(2);
+      const card=(k,v,cls)=>`<div class="bt-card"><div class="k">${k}</div><div class="v ${cls||''}">${v}</div></div>`;
+      box.innerHTML = `
+        <div class="bt-head">📊 回测结果 · ${r.symbols}个标的 · ${r.bars}根${r.timeframe}K线 · 已计手续费+滑点+防未来函数
+          ${r.capped_top?`<span class="muted">（回测最多取前${r.capped_top}个标的以保证速度）</span>`:''}</div>
+        ${sparkline(r.equity_curve, 640, 110)}
+        <div class="muted" style="text-align:center;font-size:11px;margin-top:2px">回测资金曲线</div>
+        <div class="bt-grid">
+          ${card('总收益', (m.total_return>=0?'+':'')+pctf(m.total_return), m.total_return>=0?'pos':'neg')}
+          ${card('年化', pctf(m.cagr), m.cagr>=0?'pos':'neg')}
+          ${card('最大回撤', pctf(m.max_drawdown), 'neg')}
+          ${card('夏普', m.sharpe.toFixed(2))}
+          ${card('胜率', pctf(m.win_rate))}
+          ${card('盈亏比', pf)}
+          ${card('成交数', m.num_trades)}
+        </div>
+        <div class="bt-verdict">${btVerdict(m)}</div>`;
+    }
+    async function startEngine(mode){
+      const cfg = gatherCfg(mode);
       const btn=document.querySelector('#view-'+mode+' .ctl-start');
       if(btn){ btn.disabled=true; btn.textContent='启动中…'; }
       let r; try{ r = await (await fetch('/api/engine/start',{method:'POST',

@@ -351,6 +351,39 @@ def api_engine_status(mode: str = "paper") -> JSONResponse:
     return JSONResponse(RUNNER.status(mode))
 
 
+@app.post("/api/portfolio_backtest")
+def api_portfolio_backtest(cfg: EngineCfg) -> JSONResponse:
+    """用与"启动"完全相同的配置，把整套组合规则拿历史数据快速跑一遍。"""
+    from ..backtest.portfolio_bt import backtest_portfolio
+    from ..strategies import REGISTRY
+    from ..universe import get_universe
+    c = cfg.model_dump() if hasattr(cfg, "model_dump") else cfg.dict()
+    try:
+        market = "ashare" if c["mode"] == "ashare" else "crypto"
+        if market == "ashare":
+            c["timeframe"] = "1d"        # A股数据仅日线
+        types = ("swap",) if c["trade_type"] == "swap" else ("spot",)
+        universe = get_universe(market, top=min(int(c["top"]), 30), types=types, quote="USDT")
+        if not universe:
+            return JSONResponse({"error": "未取到标的，检查网络/代理。"})
+        allow_short = bool(c["allow_short"]) and c["strategy"] == "confluence"
+
+        def factory():
+            return (REGISTRY[c["strategy"]](allow_short=True) if allow_short
+                    else REGISTRY[c["strategy"]]())
+
+        res = backtest_portfolio(
+            market, universe, factory, timeframe=c["timeframe"],
+            max_positions=int(c["max_positions"]), stop_loss=float(c["stop_loss"]),
+            take_profit=float(c["take_profit"]), breakeven=float(c["breakeven"]),
+            trailing_stop=float(c["trailing_stop"]), atr_stop_mult=float(c["atr_stop_mult"]),
+            cooldown=int(c["cooldown"]))
+        res["capped_top"] = min(int(c["top"]), 30)
+        return JSONResponse(res)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)[:200]})
+
+
 @app.get("/api/portfolio")
 def api_portfolio(mode: str = "paper") -> JSONResponse:
     """读取组合引擎落盘的状态，供面板三个交易页展示。"""
