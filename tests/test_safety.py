@@ -146,6 +146,36 @@ def test_stop_ratchets_up_and_locks_profit(tmpdir_journal):
     assert "X" not in held and "锁盈" in trades[-1]["reason"]
 
 
+def test_atr_stop_triggers_and_is_volatility_scaled(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0, atr_stop_mult=2.5)
+    _open_long(eng.broker, "X", 100, 10)
+    eng._atr["X"] = 4.0                                 # 止损距离=2.5×4=10 → 止损价≈90
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 92}, acc, held, trades)      # 92>90：比固定8%更宽，不触发
+    assert "X" in held and not trades
+    eng._apply_stops({"X": 89}, acc, held, trades)      # 89<90：触发
+    assert "X" not in held and "ATR止损" in trades[0]["reason"]
+
+
+def test_risk_sizing_smaller_for_higher_vol(tmpdir_journal):
+    eng = _engine(AllLong(), atr_stop_mult=2.5)
+    eng._atr = {"LOWVOL": 1.0, "HIVOL": 5.0}            # 同价，波动 5 倍
+    a_low = eng._size("LOWVOL", 100, 100_000, 0.2, True)
+    a_hi = eng._size("HIVOL", 100, 100_000, 0.2, True)
+    assert a_hi < a_low                                 # 波动大→仓位自动更小
+
+
+def test_cooldown_set_on_stopout(tmpdir_journal):
+    eng = _engine(AllLong(), stop_loss=0, atr_stop_mult=2.5, cooldown=3)
+    _open_long(eng.broker, "X", 100, 10)
+    eng._atr["X"] = 4.0
+    eng.state.ticks = 5
+    acc, held, trades = eng.broker.get_account(), {"X"}, []
+    eng._apply_stops({"X": 89}, acc, held, trades)      # 止损 → 冷却到 tick 5+3=8
+    assert eng._cooldown_until.get("X") == 8
+    assert eng.state.ticks < eng._cooldown_until["X"]   # 仍在冷却期内
+
+
 def test_stops_disabled_hold_through_loss(tmpdir_journal):
     eng = _engine(AllLong(), stop_loss=0.0, take_profit=0.0, trailing_stop=0.0)
     _open_long(eng.broker, "X", 100, 10)

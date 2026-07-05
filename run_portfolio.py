@@ -47,6 +47,10 @@ def main() -> None:
                    help="移动止损：止损跟随峰值留此回撤空间(默认关，如 0.05=留5%%)")
     p.add_argument("--breakeven", type=float, default=0.0,
                    help="保本上移：盈利达此比例即把止损抬到成本(默认关，如 0.05)")
+    p.add_argument("--atr-stop", type=float, default=0.0,
+                   help="ATR自适应止损倍数(>0则覆盖固定止损、并按波动定仓位，如 2.5)")
+    p.add_argument("--cooldown", type=int, default=0,
+                   help="被止损后隔多少个扫描周期才允许再进该标的(默认0=关，如 3)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -100,6 +104,7 @@ def main() -> None:
         execute=execute, notify=args.notify,
         stop_loss=args.stop_loss, take_profit=args.take_profit,
         trailing_stop=args.trailing_stop, breakeven_trigger=args.breakeven,
+        atr_stop_mult=args.atr_stop, cooldown=args.cooldown,
     )
 
     if args.once:

@@ -313,12 +313,14 @@ class EngineCfg(BaseModel):
     strategy: str = "confluence"
     top: int = 40
     max_positions: int = 6
-    timeframe: str = "1d"
+    timeframe: str = "4h"
     poll: int = 60
     stop_loss: float = 0.08
     take_profit: float = 0.0
     breakeven: float = 0.05
     trailing_stop: float = 0.06
+    atr_stop_mult: float = 2.5
+    cooldown: int = 3
     notify: bool = False
     i_understand_risk: bool = False
     capital: float = 100_000.0

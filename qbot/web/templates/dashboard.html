@@ -433,12 +433,14 @@
     function showConfigForm(mode){ _forceForm[mode]=true; _formShown[mode]=false; loadPortfolio(mode); }
     function cancelConfig(mode){ _forceForm[mode]=false; _formShown[mode]=false; loadPortfolio(mode); }
     const PRESETS = {
-      // 稳健(推荐)：合约3x双向、止损8%、关固定止盈、保本5%、移动止损6%、1分钟检测
-      stable: {trade_type:'swap', leverage:3, allow_short:true, top:40, max_positions:4,
-               poll:60, stop_loss:8, take_profit:0, breakeven:5, trailing_stop:6},
-      // 保守：现货、只做多、止损6%、止盈15%
-      safe:   {trade_type:'spot', leverage:1, allow_short:false, top:30, max_positions:5,
-               poll:300, stop_loss:6, take_profit:15, breakeven:0, trailing_stop:0},
+      // 稳健(推荐)：合约3x双向、4小时线、ATR自适应止损2.5×、保本5%、被止损冷却3轮、按波动定仓位
+      stable: {slmode:'atr', atr:2.5, tf:'4h', cd:3, be:5,
+               trade_type:'swap', leverage:3, allow_short:true, top:40, max_positions:4, poll:60,
+               stop_loss:8, take_profit:0, trailing_stop:6},
+      // 保守：现货、只做多、日线、固定止损6%、止盈15%
+      safe:   {slmode:'pct', atr:2.5, tf:'1d', cd:0, be:0,
+               trade_type:'spot', leverage:1, allow_short:false, top:30, max_positions:5, poll:300,
+               stop_loss:6, take_profit:15, trailing_stop:0},
     };
     function controlPanel(mode, error, canCancel){
       const meta = PF_META[mode];
@@ -477,20 +479,30 @@
           <label class="ctl-chk"><input type="checkbox" id="f_short_${mode}" checked>允许做空(双向)</label>
           <label>扫描数量<input type="number" id="f_top_${mode}" value="40"></label>
           <label>最多持仓<input type="number" id="f_max_${mode}" value="4"></label>
+          <label>K线周期<select id="f_tf_${mode}">
+            <option value="1h">1小时</option><option value="4h" selected>4小时</option>
+            <option value="1d">日线</option></select></label>
           <label>检测频率<select id="f_poll_${mode}">
             <option value="60" selected>1分钟</option><option value="300">5分钟</option>
             <option value="900">15分钟</option></select></label>
         </div>
         <div class="ctl-risk">
-          <div class="ctl-risk-t">🛡️ 风控（都可留空=关）</div>
+          <div class="ctl-risk-t">🛡️ 风控</div>
           <div class="ctl-grid">
-            <label>止损%<input type="number" id="f_sl_${mode}" value="8" step="0.5"></label>
-            <label>固定止盈%<input type="number" id="f_tp_${mode}" value="0" step="1"
+            <label>止损方式<select id="f_slmode_${mode}" onchange="toggleSlMode('${mode}')">
+              <option value="atr" selected>ATR自适应(推荐)</option>
+              <option value="pct">固定百分比</option></select></label>
+            <label id="f_atrwrap_${mode}">ATR倍数<input type="number" id="f_atr_${mode}" value="2.5" step="0.5"
+              title="止损=成本∓倍数×ATR，波动大自动放宽止损、并按波动把仓位压小"></label>
+            <label id="f_slwrap_${mode}" style="display:none">止损%<input type="number" id="f_sl_${mode}" value="8" step="0.5"></label>
+            <label id="f_tpwrap_${mode}" style="display:none">固定止盈%<input type="number" id="f_tp_${mode}" value="0" step="1"
               title="0=关闭固定止盈，靠移动止损锁利润"></label>
             <label>保本触发%<input type="number" id="f_be_${mode}" value="5" step="0.5"
-              title="盈利到这个%就把止损抬到成本"></label>
-            <label>移动止损%<input type="number" id="f_ts_${mode}" value="6" step="0.5"
-              title="止损跟随峰值、留这么多回撤空间"></label>
+              title="盈利到这个%就把止损抬到成本，此后不亏本金"></label>
+            <label id="f_tswrap_${mode}" style="display:none">移动止损%<input type="number" id="f_ts_${mode}" value="6" step="0.5"
+              title="固定%模式下：止损跟随峰值、留这么多回撤空间"></label>
+            <label>被止损冷却(周期)<input type="number" id="f_cd_${mode}" value="3"
+              title="某币被止损后，隔几个扫描周期才允许再进，防止震荡里反复挨打"></label>
           </div>
         </div>
         ${isCrypto?`<label class="ctl-chk ctl-riskack"><input type="checkbox" id="f_ack_${mode}">
@@ -504,23 +516,37 @@
       const w=document.getElementById('f_levwrap_'+mode);
       if(w) w.style.display = tt==='swap' ? '' : 'none';
     }
+    function toggleSlMode(mode){
+      const atr = document.getElementById('f_slmode_'+mode).value==='atr';
+      const show=(id,on)=>{const el=document.getElementById(id+'_'+mode); if(el) el.style.display=on?'':'none';};
+      show('f_atrwrap', atr);
+      ['f_slwrap','f_tpwrap','f_tswrap'].forEach(id=>show(id, !atr));   // 固定%的字段只在固定模式显示
+    }
     function applyPreset(mode, name){
       const p=PRESETS[name]; if(!p) return;
       const set=(id,v)=>{const el=document.getElementById(id+'_'+mode); if(el){ if(el.type==='checkbox') el.checked=!!v; else el.value=v; }};
+      set('f_slmode',p.slmode); set('f_atr',p.atr); set('f_tf',p.tf); set('f_cd',p.cd);
       set('f_tt',p.trade_type); set('f_lev',p.leverage); set('f_short',p.allow_short);
       set('f_top',p.top); set('f_max',p.max_positions); set('f_poll',p.poll);
-      set('f_sl',p.stop_loss); set('f_tp',p.take_profit); set('f_be',p.breakeven); set('f_ts',p.trailing_stop);
-      toggleLev(mode);
+      set('f_sl',p.stop_loss); set('f_tp',p.take_profit); set('f_be',p.be); set('f_ts',p.trailing_stop);
+      toggleLev(mode); toggleSlMode(mode);
     }
     async function startEngine(mode){
       const g=(id,d)=>{const el=document.getElementById(id+'_'+mode); return el?(el.type==='checkbox'?el.checked:el.value):d;};
+      const slMode = g('f_slmode','atr');
+      const isAtr = slMode==='atr';
       const cfg = {
         mode, broker: mode==='crypto'?'okx':'paper',
         market: mode==='ashare'?'ashare':'crypto',
         trade_type: g('f_tt','spot'), leverage: +g('f_lev',3), allow_short: !!g('f_short',false),
         top: +g('f_top',40), max_positions: +g('f_max',6), poll: +g('f_poll',60),
-        stop_loss: (+g('f_sl',0))/100, take_profit: (+g('f_tp',0))/100,
-        breakeven: (+g('f_be',0))/100, trailing_stop: (+g('f_ts',0))/100,
+        timeframe: g('f_tf','4h'), cooldown: +g('f_cd',0),
+        // ATR模式：初始止损与移动止损由ATR接管(固定%项归0)；固定模式：用百分比
+        atr_stop_mult: isAtr ? (+g('f_atr',2.5)) : 0,
+        stop_loss: isAtr ? 0 : (+g('f_sl',0))/100,
+        take_profit: isAtr ? 0 : (+g('f_tp',0))/100,
+        trailing_stop: isAtr ? 0 : (+g('f_ts',0))/100,
+        breakeven: (+g('f_be',0))/100,
         i_understand_risk: !!g('f_ack',false),
       };
       const btn=document.querySelector('#view-'+mode+' .ctl-start');
@@ -665,7 +691,7 @@
             <span class="status" style="padding:0 0 0 10px">${meta.warn}</span>
           </div>
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
-            ${d.execute&&(d.stop_loss_pct||d.take_profit_pct)?`· 风控 ${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.breakeven_pct?' 保本@'+d.breakeven_pct+'%':''}${d.trailing_stop_pct?' 移动止损'+d.trailing_stop_pct+'%':''}`:''}
+            ${d.execute?`· ${d.timeframe||''} · 风控 ${d.atr_stop_mult?'ATR止损'+d.atr_stop_mult+'×':''}${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.breakeven_pct?' 保本@'+d.breakeven_pct+'%':''}${!d.atr_stop_mult&&d.trailing_stop_pct?' 移动'+d.trailing_stop_pct+'%':''}${d.cooldown?' 冷却'+d.cooldown+'轮':''}`:''}
             · 更新 ${d.ts}
             ${d.halted?'<span class="neg"> · 🛑组合熔断(清仓停开)</span>':''}
             ${d.daily_halted?`<span class="neg"> · 🛑单日亏损熔断(今日${d.daily_loss_pct}%·停开新仓)</span>`

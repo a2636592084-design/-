@@ -53,6 +53,8 @@ class PortfolioEngine:
         take_profit: float = 0.25,     # 硬止盈：单仓盈利达此比例强制平仓(0=关)
         trailing_stop: float = 0.0,    # 移动止损：止损线跟随峰值、留此比例回撤空间(0=关)
         breakeven_trigger: float = 0.0,  # 保本上移：盈利达此比例即把止损抬到成本(0=关)
+        atr_stop_mult: float = 0.0,    # ATR自适应止损：止损距离=此倍数×ATR(>0则覆盖固定%，并按波动定仓位)
+        cooldown: int = 0,             # 冷却：某标的被止损后，隔此多少个扫描周期才允许再进(0=关)
     ):
         self.mode = mode
         self.market = market
@@ -71,6 +73,8 @@ class PortfolioEngine:
         self.take_profit = take_profit
         self.trailing_stop = trailing_stop
         self.breakeven_trigger = breakeven_trigger
+        self.atr_stop_mult = atr_stop_mult
+        self.cooldown = cooldown
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
@@ -80,6 +84,8 @@ class PortfolioEngine:
         self._stop_price: dict = {}           # 每仓当前保护止损价(只升不降、锁盈)
         self._peak_price: dict = {}           # 每仓自开仓以来的有利方向极值价
         self._liq: dict = {}                  # 合约强平价缓存 {symbol: price}
+        self._atr: dict = {}                  # 每标的最新 ATR(绝对值)，供ATR止损/波动定仓位
+        self._cooldown_until: dict = {}       # {symbol: 到第几个tick前不再进}
 
     # ---------- 扫描全市场，返回每个标的的信号+分数+价格 ----------
     def _scan(self) -> list[dict]:
@@ -94,6 +100,14 @@ class PortfolioEngine:
                     pos = pos.clip(lower=0.0)
                 target = float(pos.iloc[-1]) if len(pos) else 0.0
                 price = float(df["close"].iloc[-1])
+                # 记录 ATR（波动率）：ATR止损与按波动定仓位都要用
+                try:
+                    from ..strategies.indicators import atr as _atr_ind
+                    av = float(_atr_ind(df).iloc[-1])
+                    if av == av and av > 0:
+                        self._atr[sym] = av
+                except Exception:  # noqa: BLE001
+                    pass
                 # 排序强度：共振策略用共振分，否则用20根动量
                 if hasattr(self.strategy, "explain"):
                     strength = float(self.strategy.explain(df).get("score") or 0.0)
@@ -144,12 +158,20 @@ class PortfolioEngine:
         self._maybe_notify(scan, held)
         return self._write_state(scan, trades)
 
+    def _stop_dist(self, sym: str, entry: float) -> float | None:
+        """止损距离(绝对价格)：ATR模式=倍数×ATR(波动自适应)；否则=固定%×成本。"""
+        if self.atr_stop_mult and self._atr.get(sym):
+            return self.atr_stop_mult * self._atr[sym]
+        return self.stop_loss * entry if self.stop_loss else None
+
     def stop_level(self, sym: str, entry: float, is_long: bool) -> float | None:
         """某仓当前的保护止损价（已把保本/移动的上移算进去）。供面板显示。"""
-        if not entry or not self.stop_loss:
-            return self._stop_price.get(sym)
-        init = entry * (1 - self.stop_loss) if is_long else entry * (1 + self.stop_loss)
-        return self._stop_price.get(sym, init)
+        if sym in self._stop_price:
+            return self._stop_price[sym]
+        dist = self._stop_dist(sym, entry)
+        if not dist:
+            return None
+        return entry - dist if is_long else entry + dist
 
     def _apply_stops(self, prices, account, held, trades) -> None:
         """价格止损/止盈/移动止损：独立于信号、每轮最高优先级。
@@ -169,11 +191,14 @@ class PortfolioEngine:
             if not entry or not px or entry <= 0:
                 continue
             is_long = p.amount > 0
+            dist = self._stop_dist(sym, entry)         # 止损距离(ATR或固定%)
+            atr_mode = bool(self.atr_stop_mult and self._atr.get(sym))
             # 初始化：保护止损 + 峰值
             if sym not in self._stop_price:
-                self._stop_price[sym] = (entry * (1 - self.stop_loss) if is_long
-                                         else entry * (1 + self.stop_loss)) if self.stop_loss \
-                    else (0.0 if is_long else float("inf"))
+                if dist:
+                    self._stop_price[sym] = entry - dist if is_long else entry + dist
+                else:
+                    self._stop_price[sym] = 0.0 if is_long else float("inf")
                 self._peak_price[sym] = px
             peak = self._peak_price[sym] = (max(self._peak_price[sym], px) if is_long
                                             else min(self._peak_price[sym], px))
@@ -185,22 +210,26 @@ class PortfolioEngine:
                     else entry * (1 - self.breakeven_trigger)
                 if (px >= trig) if is_long else (px <= trig):
                     stop = raise_(stop, entry)
-            # 移动止损：止损跟随峰值、留回撤空间
-            if self.trailing_stop:
+            # 移动止损：ATR模式=峰值∓N×ATR(吊灯止损)；否则=峰值×(1∓trailing%)
+            if atr_mode and dist:
+                trail = peak - dist if is_long else peak + dist
+                stop = raise_(stop, trail)
+            elif self.trailing_stop:
                 trail = peak * (1 - self.trailing_stop) if is_long \
                     else peak * (1 + self.trailing_stop)
                 stop = raise_(stop, trail)
             self._stop_price[sym] = stop
 
             # 判定平仓
-            init = entry * (1 - self.stop_loss) if is_long else entry * (1 + self.stop_loss)
+            init = (entry - dist if is_long else entry + dist) if dist \
+                else (0.0 if is_long else float("inf"))
             locked = (stop >= entry) if is_long else (stop <= entry)          # 已保本/锁盈
             moved = (stop > init + 1e-9) if is_long else (stop < init - 1e-9)  # 止损线上移过
             hit_stop = (px <= stop) if is_long else (px >= stop)
+            base_label = "ATR止损" if atr_mode else f"止损{self.stop_loss*100:.0f}%"
             reason = None
-            if (self.stop_loss or self.trailing_stop or self.breakeven_trigger) and hit_stop:
-                reason = ("移动止损(锁盈)" if locked else
-                          "移动止损" if moved else f"止损{self.stop_loss*100:.0f}%")
+            if (self.stop_loss or self.trailing_stop or self.breakeven_trigger or self.atr_stop_mult) and hit_stop:
+                reason = ("移动止损(锁盈)" if locked else "移动止损" if moved else base_label)
             elif self.take_profit:
                 tp = entry * (1 + self.take_profit) if is_long else entry * (1 - self.take_profit)
                 if (px >= tp) if is_long else (px <= tp):
@@ -213,6 +242,8 @@ class PortfolioEngine:
                     held.discard(sym)
                     self._stop_price.pop(sym, None)
                     self._peak_price.pop(sym, None)
+                    if self.cooldown:                  # 被止损后进入冷却，防止立刻追回震荡
+                        self._cooldown_until[sym] = self.state.ticks + self.cooldown
 
     def _rebalance(self, scan, prices, account, equity, held) -> list[dict]:
         """双向组合再平衡：多空皆可，多指标发现方向反转即平仓。"""
@@ -247,19 +278,31 @@ class PortfolioEngine:
         weight = min(1.0 / self.max_positions, self.risk.cfg.max_position_per_symbol)
         candidates = sorted(
             (r for r in scan if abs(r["target"]) > 0.5 and r["symbol"] not in held
-             and r["symbol"] not in self._untradeable),
+             and r["symbol"] not in self._untradeable
+             and self.state.ticks >= self._cooldown_until.get(r["symbol"], 0)),  # 冷却中跳过
             key=lambda r: abs(r["strength"]), reverse=True)
         for r in candidates:
             if len(held) >= self.max_positions:
                 break
             sym, price = r["symbol"], r["price"]
-            amt = (equity * weight) / price if price > 0 else 0.0
+            amt = self._size(sym, price, equity, weight, r["target"] > 0)
             if amt <= 0:
                 continue
             side = "buy" if r["target"] > 0 else "sell"   # 卖出=开空
             if self._safe_submit(sym, side, amt, price, trades):
                 held.add(sym)
         return trades
+
+    def _size(self, sym, price, equity, weight, is_long) -> float:
+        """仓位数量。ATR模式=按波动定仓位（每单风险≈风险预算1%，波动大则仓位小，
+        风险均衡）；否则=等权（总资金/最多持仓）。"""
+        if price <= 0:
+            return 0.0
+        if self.atr_stop_mult and self._atr.get(sym):
+            stop_dist = self.atr_stop_mult * self._atr[sym]
+            stop_price = price - stop_dist if is_long else price + stop_dist
+            return self.risk.position_size_by_risk(price, stop_price, equity)
+        return (equity * weight) / price
 
     def _close(self, sym, account, prices, trades, reason="信号") -> bool:
         """平掉某标的的现有仓位（多单卖出平、空单买入平）。"""
@@ -400,6 +443,9 @@ class PortfolioEngine:
             "take_profit_pct": round(self.take_profit * 100, 1) if self.take_profit else 0,
             "trailing_stop_pct": round(self.trailing_stop * 100, 1) if self.trailing_stop else 0,
             "breakeven_pct": round(self.breakeven_trigger * 100, 1) if self.breakeven_trigger else 0,
+            "atr_stop_mult": self.atr_stop_mult or 0,
+            "cooldown": self.cooldown or 0,
+            "timeframe": self.timeframe,
             "daily_halted": self.risk.daily_halted,
             "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),
             "max_daily_loss_pct": round(self.risk.cfg.max_daily_loss * 100, 1),
