@@ -56,6 +56,9 @@ class PortfolioEngine:
         atr_stop_mult: float = 0.0,    # ATR自适应止损：止损距离=此倍数×ATR(>0则覆盖固定%，并按波动定仓位)
         cooldown: int = 0,             # 冷却：某标的被止损后，隔此多少个扫描周期才允许再进(0=关)
         exchange_stops: bool = True,   # 合约：开仓同步在OKX挂真实止损条件单(程序停了也有保护)
+        market_gate: bool = False,     # 大盘方向闸：只在BTC自己有趋势时才开新仓(震荡休息)
+        gate_adx: float = 20.0,        # 大盘闸的ADX门槛(BTC ADX<此值=震荡→暂停开新仓)
+        gate_ema: int = 200,           # 大盘闸的均线长度(BTC收盘在EMA上=多头行情、下=空头行情)
     ):
         self.mode = mode
         self.market = market
@@ -77,6 +80,13 @@ class PortfolioEngine:
         self.atr_stop_mult = atr_stop_mult
         self.cooldown = cooldown
         self.exchange_stops = exchange_stops
+        self.market_gate = market_gate
+        self.gate_adx = gate_adx
+        self.gate_ema = gate_ema
+        # 大盘基准标的：从 universe 里挑 BTC（自动匹配现货/合约的symbol格式），没有则退回 BTC/USDT
+        self._bench_symbol = next(
+            (s for s in universe if str(s).upper().split("/")[0] == "BTC"), "BTC/USDT")
+        self._regime: int | None = None       # 本轮大盘态：+1多头/-1空头/0震荡/None=闸关或不适用
         self.state = PortfolioState()
         self._held_prev: set[str] = set()
         self._notifiers = None
@@ -123,7 +133,23 @@ class PortfolioEngine:
                 log.debug("扫描 %s 失败: %s", sym, e)
         return rows
 
+    def _market_regime(self) -> int | None:
+        """本轮大盘态：+1多头(只做多)/-1空头(只做空)/0震荡(暂停开新仓)。
+        闸关闭、或非加密市场(BTC基准不适用) → None，不做任何限制。"""
+        if not self.market_gate or self.market != "crypto":
+            return None
+        try:
+            from ..strategies.regime import regime_now
+            df = get_ohlcv(self.market, self._bench_symbol, self.timeframe,
+                           limit=self.lookback, demo=self.demo,
+                           fallback_synthetic=(self.market == "synthetic"))
+            return regime_now(df, adx_min=self.gate_adx, ema_len=self.gate_ema)
+        except Exception as e:  # noqa: BLE001
+            log.debug("大盘态判定失败(%s)，本轮不拦截开仓。", e)
+            return None
+
     def tick(self) -> dict:
+        self._regime = self._market_regime()
         scan = self._scan()
         if not scan:
             log.warning("本轮无有效标的（网络？），跳过。")
@@ -282,12 +308,21 @@ class PortfolioEngine:
             log.warning("单日亏损熔断：今日停开新仓，已有持仓保留（明日自动复位）。")
             return trades
 
+        # 大盘方向闸：BTC震荡→本轮不开新仓；BTC多头→只开多；BTC空头→只开空（已有仓不受影响）
+        reg = self._regime
+        if reg == 0:
+            log.info("[%s] 大盘震荡(BTC ADX<%.0f)：本轮暂停开新仓，已有持仓的止损/信号平仓照常。",
+                     self.mode, self.gate_adx)
+            return trades
+
         # 2) 开仓：按共振分绝对值排序，填满剩余仓位（多头买入开、空头卖出开）
         weight = min(1.0 / self.max_positions, self.risk.cfg.max_position_per_symbol)
         candidates = sorted(
             (r for r in scan if abs(r["target"]) > 0.5 and r["symbol"] not in held
              and r["symbol"] not in self._untradeable
-             and self.state.ticks >= self._cooldown_until.get(r["symbol"], 0)),  # 冷却中跳过
+             and self.state.ticks >= self._cooldown_until.get(r["symbol"], 0)  # 冷却中跳过
+             # 大盘闸：多头行情只留做多信号、空头行情只留做空信号
+             and (reg is None or (reg > 0 and r["target"] > 0) or (reg < 0 and r["target"] < 0))),
             key=lambda r: abs(r["strength"]), reverse=True)
         for r in candidates:
             if len(held) >= self.max_positions:
@@ -511,6 +546,11 @@ class PortfolioEngine:
             "breakeven_pct": round(self.breakeven_trigger * 100, 1) if self.breakeven_trigger else 0,
             "atr_stop_mult": self.atr_stop_mult or 0,
             "cooldown": self.cooldown or 0,
+            "market_gate": bool(self.market_gate),
+            "regime": self._regime,     # +1多头/-1空头/0震荡(暂停开仓)/None(闸关或不适用)
+            "regime_label": ({1: "多头行情·只做多", -1: "空头行情·只做空",
+                              0: "震荡·暂停开新仓"}.get(self._regime, "—")
+                             if self.market_gate and self.market == "crypto" else "—"),
             "timeframe": self.timeframe,
             "daily_halted": self.risk.daily_halted,
             "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),

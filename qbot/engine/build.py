@@ -19,6 +19,7 @@ DEFAULTS = {
     "top": 40, "max_positions": 6, "timeframe": "4h", "poll": 60,
     "stop_loss": 0.08, "take_profit": 0.0, "breakeven": 0.05, "trailing_stop": 0.06,
     "atr_stop_mult": 2.5, "cooldown": 3, "exchange_stops": True, "quality": True,
+    "market_gate": False, "gate_adx": 20.0, "gate_ema": 200,
     "notify": False, "i_understand_risk": False, "capital": 100_000.0,
 }
 
@@ -68,6 +69,8 @@ def build_engine(cfg: dict) -> tuple[PortfolioEngine, dict]:
         trailing_stop=float(c["trailing_stop"]), breakeven_trigger=float(c["breakeven"]),
         atr_stop_mult=float(c["atr_stop_mult"]), cooldown=int(c["cooldown"]),
         exchange_stops=bool(c["exchange_stops"]),
+        market_gate=bool(c["market_gate"]), gate_adx=float(c["gate_adx"]),
+        gate_ema=int(c["gate_ema"]),
     )
     info = {
         "mode": c["mode"], "market": market, "broker": c["broker"],

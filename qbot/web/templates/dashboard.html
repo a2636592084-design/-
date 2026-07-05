@@ -529,6 +529,9 @@
           <label class="ctl-chk" style="margin-top:8px;color:var(--fg)">
             <input type="checkbox" id="f_quality_${mode}" checked>
             🪙 只做【优质币】（主流+二三线，排除叙事币/妖币；趋势策略只在干净趋势里有效）</label>
+          <label class="ctl-chk" style="margin-top:8px;color:var(--fg)">
+            <input type="checkbox" id="f_gate_${mode}" ${isCrypto?'checked':''}>
+            🧭 大盘方向闸（BTC震荡时暂停开新仓、只顺大盘方向做；回测证明能降回撤/提收益，仅加密有效）</label>
         </div>
         ${isCrypto?`<label class="ctl-chk ctl-riskack"><input type="checkbox" id="f_ack_${mode}">
           我已了解：只有当 .env 里 OKX_DEMO=0 时才动真钱，我愿承担杠杆爆仓风险
@@ -576,6 +579,7 @@
         breakeven: (+g('f_be',0))/100,
         exchange_stops: g('f_exstop',true)!==false,
         quality: g('f_quality',true)!==false,
+        market_gate: !!g('f_gate',false),
         i_understand_risk: !!g('f_ack',false),
       };
     }
@@ -761,6 +765,7 @@
           <div class="status">策略 ${d.strategy} · 扫描 ${d.scanned}/${d.universe_size}
             ${d.execute?`· ${d.timeframe||''} · 风控 ${d.atr_stop_mult?'ATR止损'+d.atr_stop_mult+'×':''}${d.stop_loss_pct?'止损'+d.stop_loss_pct+'%':''}${d.take_profit_pct?' 止盈'+d.take_profit_pct+'%':''}${d.breakeven_pct?' 保本@'+d.breakeven_pct+'%':''}${!d.atr_stop_mult&&d.trailing_stop_pct?' 移动'+d.trailing_stop_pct+'%':''}${d.cooldown?' 冷却'+d.cooldown+'轮':''}`:''}
             · 更新 ${d.ts}
+            ${d.market_gate&&d.regime_label&&d.regime_label!=='—'?`<span style="color:${d.regime===0?'var(--gold)':(d.regime>0?'var(--up)':'var(--down)')}"> · 🧭大盘 ${d.regime_label}</span>`:''}
             ${d.halted?'<span class="neg"> · 🛑组合熔断(清仓停开)</span>':''}
             ${d.daily_halted?`<span class="neg"> · 🛑单日亏损熔断(今日${d.daily_loss_pct}%·停开新仓)</span>`
               :(d.daily_loss_pct!=null?` · 今日<span class="${d.daily_loss_pct>=0?'pos':'neg'}">${d.daily_loss_pct>=0?'+':''}${d.daily_loss_pct}%</span>(熔断线-${d.max_daily_loss_pct}%)`:'')}

@@ -55,6 +55,10 @@ def main() -> None:
                    help="关闭“开仓同步在OKX挂真实止损单”(默认开，合约建议保持开)")
     p.add_argument("--all-coins", action="store_true",
                    help="扫描全部币(默认只扫优质币白名单：主流+二三线，排除叙事币/妖币)")
+    p.add_argument("--market-gate", action="store_true",
+                   help="大盘方向闸：只在BTC自己有趋势时才开新仓(震荡休息、多头只做多、空头只做空)")
+    p.add_argument("--gate-adx", type=float, default=20.0,
+                   help="大盘闸的ADX门槛(BTC ADX<此值=震荡→暂停开新仓，默认20)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -111,6 +115,7 @@ def main() -> None:
         trailing_stop=args.trailing_stop, breakeven_trigger=args.breakeven,
         atr_stop_mult=args.atr_stop, cooldown=args.cooldown,
         exchange_stops=not args.no_exchange_stops,
+        market_gate=args.market_gate, gate_adx=args.gate_adx,
     )
 
     if args.once:

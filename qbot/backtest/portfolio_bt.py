@@ -67,6 +67,7 @@ def backtest_portfolio(
     fee: float = 0.0005, slippage: float = 0.0005, risk_per_trade: float = 0.01,
     max_pos_per_symbol: float = 0.20, max_daily_loss: float = 0.10,
     max_drawdown: float = 0.20,
+    market_gate: bool = False, gate_adx: float = 20.0, gate_ema: int = 200,
 ) -> dict:
     data = _prep(market, universe, strategy_factory, timeframe, limit, atr_stop_mult)
     if not data:
@@ -76,6 +77,16 @@ def backtest_portfolio(
     # 对齐到统一时间轴；价格/信号/分数/ATR 前向填充（因果），上市前留 NaN=不可用
     for sym in data:
         data[sym] = data[sym].reindex(idx).ffill()
+
+    # 大盘方向闸：用 BTC 算逐根大盘态并 shift(1)（不偷看未来）。震荡→不开、多头只做多、空头只做空。
+    regime = None
+    if market_gate:
+        btc = next((s for s in data if str(s).upper().split("/")[0] == "BTC"), None)
+        if btc:
+            from ..strategies.regime import regime_series
+            regime = regime_series(data[btc], adx_min=gate_adx, ema_len=gate_ema).shift(1)
+        else:
+            log.warning("开了大盘闸但 universe 里没有 BTC，无法判定大盘态，本次不拦截。")
 
     cash = capital
     pos: dict[str, dict] = {}          # sym -> {amt, avg, stop, peak}
@@ -169,6 +180,14 @@ def backtest_portfolio(
         if daily_halted:
             continue
 
+        # 大盘方向闸：BTC震荡→本轮不开新仓；多头只开多、空头只开空
+        reg = None
+        if regime is not None:
+            rv = regime.at[t]
+            reg = int(rv) if rv == rv else None      # NaN(预热期)→不限制
+        if reg == 0:
+            continue
+
         # 3) 开仓：按|共振分|排序择优，填满剩余仓位
         cands = []
         for s, dd in data.items():
@@ -179,8 +198,11 @@ def backtest_portfolio(
             sig = dd.at[t, "sig"]
             if abs(sig) <= 0.5:
                 continue
+            side_i = 1 if sig > 0 else -1
+            if reg is not None and reg != 0 and side_i != reg:   # 与大盘方向不符→跳过
+                continue
             sc = dd.at[t, "score"]
-            cands.append((abs(sc) if sc == sc else 0.0, s, 1 if sig > 0 else -1))
+            cands.append((abs(sc) if sc == sc else 0.0, s, side_i))
         cands.sort(reverse=True)
         weight = min(1.0 / max_positions, max_pos_per_symbol)
         for _, s, side in cands:
