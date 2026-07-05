@@ -591,8 +591,9 @@
       const pf = m.profit_factor==null ? 99 : m.profit_factor;
       if(m.total_return>0 && m.max_drawdown>-0.25 && pf>1.2)
         return '✅ 这套配置在这段历史上是赚钱的、回撤可控。但历史≠未来，仍需模拟盘验证再谈真钱。';
-      if(m.total_return>0) return '🟡 微赚，但回撤或盈亏比一般。建议调参数（周期/ATR倍数/持仓数）再测。';
-      return '❌ 这套配置在这段历史上是亏的。别急着上，先换参数（周期、ATR倍数、扫描范围）重新回测。';
+      if(m.total_return>0) return '🟡 微赚，但回撤或盈亏比一般。可以拿去模拟盘练手观察，别当印钞机。';
+      if(m.total_return>-0.05) return '🟡 基本打平（小亏，在噪声范围内）。这类简单公开趋势策略的天花板大致就在"打平附近"——别陷入无止境调参。要么接受它当【练手模拟盘】盯规则，要么换更根本的方法（另类数据/信号），不是靠拧旋钮能变神的。';
+      return '❌ 这套配置明显亏损。先检查是不是设了固定止盈（趋势策略忌讳）、或大盘闸没开；仍是负的就说明这套方法在这段行情不适用。';
     }
     async function runPortfolioBacktest(mode){
       const cfg = gatherCfg(mode);
