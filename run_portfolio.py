@@ -54,7 +54,7 @@ def main() -> None:
     p.add_argument("--no-exchange-stops", action="store_true",
                    help="关闭“开仓同步在OKX挂真实止损单”(默认开，合约建议保持开)")
     p.add_argument("--all-coins", action="store_true",
-                   help="扫描全部币(默认只扫优质币白名单：主流+二三线，排除叙事币/妖币)")
+                   help="扫描全部币(默认只扫优质币白名单：一线主流+二线蓝筹，排除三线小盘/妖币)")
     p.add_argument("--market-gate", action="store_true",
                    help="大盘方向闸：只在BTC自己有趋势时才开新仓(震荡休息、多头只做多、空头只做空)")
     p.add_argument("--gate-adx", type=float, default=20.0,

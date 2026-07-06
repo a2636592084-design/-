@@ -23,31 +23,39 @@ _ASHARE_FALLBACK = [
 ]
 
 
-# 优质币白名单（主流 + 有实体/长历史的二三线；排除叙事币/妖币/纯meme/次新）。
-# 只做趋势策略吃得动的、有真实流动性与历史的币。可按需增删（告诉我名字即可）。
-QUALITY_CRYPTO = {
-    # 主流
+# 优质币白名单，按【档位】划分（可按需增删，告诉我名字即可）：
+#   一线(主流大盘)：市值最大、流动性最深、相对波动最小——趋势策略最吃得动、止损最靠谱。
+#   二线(蓝筹)：有真实业务/长历史、流动性仍充足，但排名在主流之下。
+#   三线(小盘/高波动)：更小更颠、带杠杆容易插穿止损——【默认不交易】，仅留存供参考/可选放开。
+# 默认可交易 = 一线 + 二线（三线与妖币/纯meme/次新一律排除）。
+
+# 一线·主流大盘（约15个）
+TIER1_CRYPTO = {
     "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "TRX", "LINK",
-    "DOT", "BCH", "LTC", "XLM", "TON",
-    # 老牌 L1 / L2
-    "NEAR", "ATOM", "APT", "ARB", "OP", "SUI", "ICP", "ALGO", "HBAR", "EGLD",
-    "ETC", "EOS", "XTZ", "FLOW", "KSM", "STX", "MINA", "CFX",
-    # 老牌 DeFi
-    "UNI", "AAVE", "MKR", "CRV", "LDO", "SNX", "COMP", "DYDX", "SUSHI",
-    "1INCH", "YFI", "RUNE", "INJ",
-    # 基础设施 / 其它有实体
-    "FIL", "GRT", "RENDER", "IMX", "THETA", "QNT", "KAVA", "ENS", "WOO",
-    "ZEC", "DASH", "LPT",
-    # 游戏 / 元宇宙（老牌）
+    "DOT", "BCH", "LTC", "TON", "XLM",
+}
+# 二线·蓝筹（老牌 L1/L2 + 老牌 DeFi + 基础设施里流动性好、够成熟的）
+TIER2_CRYPTO = {
+    "UNI", "AAVE", "ATOM", "NEAR", "APT", "ARB", "OP", "SUI", "ICP",
+    "FIL", "INJ", "LDO", "MKR", "ETC", "HBAR", "RENDER", "IMX", "GRT", "ALGO",
+}
+# 三线·小盘/高波动（默认不交易；想放开就并进 QUALITY_CRYPTO 或用 --all-coins）
+TIER3_CRYPTO = {
+    "EGLD", "EOS", "XTZ", "FLOW", "KSM", "STX", "MINA", "CFX",
+    "CRV", "SNX", "COMP", "DYDX", "SUSHI", "1INCH", "YFI", "RUNE",
+    "THETA", "QNT", "KAVA", "ENS", "WOO", "ZEC", "DASH", "LPT",
     "SAND", "MANA", "AXS", "GALA", "ENJ", "CHZ", "APE",
 }
+
+# 实际用于过滤的白名单：一线 + 二线（不含三线）
+QUALITY_CRYPTO = TIER1_CRYPTO | TIER2_CRYPTO
 
 
 def crypto_universe(types=("spot",), quote: str = "USDT", top: int = 120,
                     quality: bool = False) -> list[str]:
     """OKX 全市场加密标的，按 24h 成交额降序取 Top-N。
     types: 可含 'spot'(现货) / 'swap'(永续合约) / 'future'(交割) 等 ccxt 类型。
-    quality=True：只保留优质币白名单（主流+二三线，排除叙事币/妖币）。"""
+    quality=True：只保留优质币白名单（一线主流+二线蓝筹，排除三线小盘/妖币）。"""
     try:
         import ccxt
     except ImportError as e:  # pragma: no cover
@@ -70,7 +78,7 @@ def crypto_universe(types=("spot",), quote: str = "USDT", top: int = 120,
     if quality:                                    # 只留优质币白名单
         before = len(cands)
         cands = [m for m in cands if str(m.get("base", "")).upper() in QUALITY_CRYPTO]
-        log.info("优质币过滤：%d → %d（排除叙事币/妖币/次新）", before, len(cands))
+        log.info("优质币过滤(一线+二线)：%d → %d（排除三线小盘/妖币/次新）", before, len(cands))
     # 用 ticker 的成交额排序（一次性拉全部 ticker）
     try:
         tickers = ex.fetch_tickers([m["symbol"] for m in cands])
