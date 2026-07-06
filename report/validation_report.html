@@ -1,0 +1,356 @@
+<title>qbot 真实标的验证报告</title>
+<style>
+  :root {
+    --ground: #f7f5f1;
+    --panel: #ffffff;
+    --panel-2: #f0ede7;
+    --ink: #1b1e24;
+    --ink-soft: #4b5058;
+    --ink-faint: #868d97;
+    --hair: #e2ddd4;
+    --accent: #b8862f;        /* 沉稳的金，不俗气 */
+    --good: #2f8f66;
+    --warn: #c08a2e;
+    --bad: #cc4f45;
+    --good-bg: rgba(47,143,102,.10);
+    --bad-bg: rgba(204,79,69,.10);
+    --best-bg: rgba(184,134,47,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0f1318;
+      --panel: #161b22;
+      --panel-2: #1c222b;
+      --ink: #e8ebef;
+      --ink-soft: #b0b7c0;
+      --ink-faint: #7b828c;
+      --hair: #2a313b;
+      --accent: #d6a545;
+      --good: #4cb98a;
+      --warn: #d6a545;
+      --bad: #e0685e;
+      --good-bg: rgba(76,185,138,.13);
+      --bad-bg: rgba(224,104,94,.13);
+      --best-bg: rgba(214,165,69,.13);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f7f5f1; --panel: #ffffff; --panel-2: #f0ede7;
+    --ink: #1b1e24; --ink-soft: #4b5058; --ink-faint: #868d97;
+    --hair: #e2ddd4; --accent: #b8862f; --good: #2f8f66; --warn: #c08a2e; --bad: #cc4f45;
+    --good-bg: rgba(47,143,102,.10); --bad-bg: rgba(204,79,69,.10); --best-bg: rgba(184,134,47,.10);
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1318; --panel: #161b22; --panel-2: #1c222b;
+    --ink: #e8ebef; --ink-soft: #b0b7c0; --ink-faint: #7b828c;
+    --hair: #2a313b; --accent: #d6a545; --good: #4cb98a; --warn: #d6a545; --bad: #e0685e;
+    --good-bg: rgba(76,185,138,.13); --bad-bg: rgba(224,104,94,.13); --best-bg: rgba(214,165,69,.13);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: "PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,
+                 BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height: 1.6; font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px 80px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* header */
+  header { padding: 56px 0 32px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 14px;
+  }
+  h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; margin: 0 0 16px;
+       font-weight: 800; letter-spacing: -.01em; text-wrap: balance; }
+  .lede { font-size: 17px; color: var(--ink-soft); max-width: 62ch; margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 22px;
+          font-size: 13px; color: var(--ink-faint); }
+  .meta b { color: var(--ink-soft); font-weight: 600; }
+
+  h2 { font-size: 13px; letter-spacing: .16em; text-transform: uppercase;
+       color: var(--ink-faint); font-weight: 700; margin: 52px 0 18px;
+       padding-bottom: 8px; border-bottom: 1px solid var(--hair); }
+
+  /* lessons */
+  .lessons { display: grid; gap: 12px; }
+  .lesson {
+    display: grid; grid-template-columns: 34px 1fr; gap: 16px;
+    background: var(--panel); border: 1px solid var(--hair);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .lesson .n {
+    font-size: 20px; font-weight: 800; color: var(--accent);
+    font-variant-numeric: tabular-nums; line-height: 1.2;
+  }
+  .lesson h3 { margin: 0 0 4px; font-size: 15.5px; font-weight: 700; }
+  .lesson p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+  .lesson .fig { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* symbol block */
+  .sym { background: var(--panel); border: 1px solid var(--hair);
+         border-radius: 14px; padding: 20px 20px 8px; margin-bottom: 20px; }
+  .sym-head { display: flex; flex-wrap: wrap; align-items: baseline;
+              justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .sym-head .name { font-size: 19px; font-weight: 800; }
+  .sym-head .name span { color: var(--ink-faint); font-weight: 500; font-size: 14px; margin-left: 8px; }
+  .sym-head .span { font-size: 12.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .bh {
+    display: inline-flex; align-items: baseline; gap: 8px; font-size: 13px;
+    color: var(--ink-soft); margin: 6px 0 12px; padding: 5px 12px;
+    background: var(--panel-2); border-radius: 999px;
+  }
+  .bh b { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+  .scroll { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 560px; }
+  th, td { text-align: right; padding: 8px 10px; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { font-size: 11.5px; letter-spacing: .04em; color: var(--ink-faint);
+             font-weight: 600; border-bottom: 1px solid var(--hair); }
+  tbody td { font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--hair); }
+  tbody tr:last-child td { border-bottom: none; }
+  .strat { font-weight: 600; color: var(--ink); font-variant-numeric: normal; }
+  .tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; margin-left: 7px;
+         font-weight: 600; letter-spacing: .02em; vertical-align: middle; }
+  .tag.trend { background: var(--panel-2); color: var(--ink-soft); }
+  .tag.rev { background: var(--panel-2); color: var(--ink-soft); }
+  .g { color: var(--good); } .b { color: var(--bad); } .w { color: var(--warn); }
+  tr.best td { background: var(--best-bg); }
+  tr.best .strat { color: var(--accent); }
+  tr.best td:first-child { border-left: 3px solid var(--accent); padding-left: 7px; }
+
+  /* walk-forward */
+  .wf { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 640px) { .wf { grid-template-columns: 1fr; } }
+  .wfcard { background: var(--panel); border: 1px solid var(--hair);
+            border-radius: 12px; padding: 18px; }
+  .wfcard h4 { margin: 0 0 12px; font-size: 14.5px; font-weight: 700; }
+  .wfrow { display: flex; justify-content: space-between; align-items: baseline;
+           padding: 7px 0; border-bottom: 1px solid var(--hair); font-size: 13.5px; }
+  .wfrow:last-of-type { border-bottom: none; }
+  .wfrow .k { color: var(--ink-soft); }
+  .wfrow .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .verdict { margin-top: 12px; font-size: 12.5px; padding: 9px 12px; border-radius: 8px;
+             background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+
+  .callout { background: var(--panel); border: 1px solid var(--hair);
+             border-left: 3px solid var(--accent); border-radius: 10px;
+             padding: 18px 22px; margin-top: 14px; }
+  .callout p { margin: 0 0 10px; color: var(--ink-soft); font-size: 14px; }
+  .callout p:last-child { margin: 0; }
+  .callout b { color: var(--ink); }
+  code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px;
+         font-size: 12.5px; font-family: ui-monospace,"SF Mono",Menlo,monospace; }
+
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--hair);
+           font-size: 12.5px; color: var(--ink-faint); }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">qbot · 真实行情验证</p>
+    <h1>八个策略，五个真实标的，一份不粉饰的成绩单</h1>
+    <p class="lede">我用真实历史数据（OKX 的 BTC/ETH、A股茅台/平安/宁德）把全部策略跑了一遍——
+      含万5手续费、万5滑点、防未来函数。结论也许不是你想听的，但都是真的。</p>
+    <div class="meta">
+      <span><b>数据</b>　OKX 现货 + 腾讯财经A股（前复权）</span>
+      <span><b>加密</b>　1000 根日线 · 2023-10 → 2026-07</span>
+      <span><b>A股</b>　800 根日线 · 2023-03 → 2026-07</span>
+      <span><b>排序</b>　按卡玛比率（年化÷最大回撤）</span>
+    </div>
+  </header>
+
+  <h2>六条真实的教训</h2>
+  <div class="lessons">
+    <div class="lesson"><div class="n">1</div><div>
+      <h3>没有万能策略，冠军因标的而异</h3>
+      <p>BTC 是<span class="fig">布林回归</span>、ETH 和茅台是<span class="fig">RSI 回归</span>、
+         平安是<span class="fig">趋势栈</span>、宁德是<span class="fig">双均线</span>。
+         想找一个"永远最强"的策略，是新手最贵的幻想。</p>
+    </div></div>
+    <div class="lesson"><div class="n">2</div><div>
+      <h3>强趋势牛市里，择时打不过"躺着拿"</h3>
+      <p>BTC 三年买入持有年化 <span class="fig">+33.9%</span>，而八个策略<b>无一跑赢</b>。
+         单边大牛市里频繁进出，只会把利润喂给手续费。</p>
+    </div></div>
+    <div class="lesson"><div class="n">3</div><div>
+      <h3>均值回归在阴跌/震荡股上是真能赚的</h3>
+      <p>茅台三年买入持有年化 <span class="fig">−8.3%</span>（亏的），
+         RSI 回归却做到 <span class="fig">+10.7%</span>、最大回撤仅 −10.6%。策略选对场景才有意义。</p>
+    </div></div>
+    <div class="lesson"><div class="n">4</div><div>
+      <h3>满量程回测的高卡玛，多半是幻觉</h3>
+      <p>RSI 在 ETH 上满量程卡玛 <span class="fig">1.10</span> 很诱人，但样本外验证一测，
+         均值缩到 <span class="fig">0.82</span> 还有两折为负——优化器直接判了"过拟合"。</p>
+    </div></div>
+    <div class="lesson"><div class="n">5</div><div>
+      <h3>VWAP 在日线上全线翻车</h3>
+      <p>vwap_momentum 每个标的都刷出 <span class="fig">100+ 笔</span>交易、收益为负。
+         这不是策略坏，是<b>用错了周期</b>——VWAP 是日内工具，请用 15m/1h。</p>
+    </div></div>
+    <div class="lesson"><div class="n">6</div><div>
+      <h3>止损和组合能降回撤，但不是提款机</h3>
+      <p>ATR 移动止损、regime_switch 自适应组合确实把回撤压了下来（BTC 上组合回撤仅 −15.6%），
+         但它们让你<b>活得久</b>，不负责让你<b>暴富</b>。这正是它们的价值。</p>
+    </div></div>
+  </div>
+
+  <h2>加密货币 · OKX 真实日线</h2>
+
+  <div class="sym">
+    <div class="sym-head">
+      <div class="name">BTC / USDT</div>
+      <div class="span">2023-10-08 → 2026-07-03 · 1000 根</div>
+    </div>
+    <div class="bh">买入持有基准 年化 <b class="g">+33.9%</b> · 单边大牛，择时者的噩梦</div>
+    <div class="scroll"><table class="num">
+      <thead><tr><th>策略</th><th>年化</th><th>最大回撤</th><th>夏普</th><th>卡玛</th><th>胜率</th><th>交易</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="strat">bollinger_reversion<span class="tag rev">震荡</span></td><td class="g">+3.3%</td><td class="g">−3.7%</td><td>0.51</td><td class="g">0.90</td><td>100%</td><td>2</td></tr>
+        <tr><td class="strat">regime_switch<span class="tag rev">组合</span></td><td class="g">+5.6%</td><td>−15.6%</td><td>0.45</td><td>0.36</td><td>67%</td><td>12</td></tr>
+        <tr><td class="strat">donchian<span class="tag trend">趋势</span></td><td class="g">+8.3%</td><td class="b">−36.4%</td><td>0.42</td><td>0.23</td><td>27%</td><td>15</td></tr>
+        <tr><td class="strat">trend_stack<span class="tag trend">趋势</span></td><td class="g">+2.2%</td><td>−15.4%</td><td>0.23</td><td>0.14</td><td>60%</td><td>10</td></tr>
+        <tr><td class="strat">vwap_momentum<span class="tag">日内</span></td><td class="g">+4.0%</td><td class="b">−31.6%</td><td>0.29</td><td>0.13</td><td>50%</td><td>154</td></tr>
+        <tr><td class="strat">ma_cross<span class="tag trend">趋势</span></td><td class="g">+3.8%</td><td class="b">−37.1%</td><td>0.28</td><td>0.10</td><td>50%</td><td>12</td></tr>
+        <tr><td class="strat">rsi_reversion<span class="tag rev">震荡</span></td><td class="g">+1.8%</td><td>−27.4%</td><td>0.20</td><td>0.07</td><td>50%</td><td>6</td></tr>
+        <tr><td class="strat">supertrend<span class="tag trend">趋势</span></td><td class="b">−8.5%</td><td class="b">−53.6%</td><td class="b">−0.14</td><td class="b">−0.16</td><td>21%</td><td>19</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="sym">
+    <div class="sym-head">
+      <div class="name">ETH / USDT</div>
+      <div class="span">2023-10-08 → 2026-07-03 · 1000 根</div>
+    </div>
+    <div class="bh">买入持有基准 年化 <b class="w">+2.3%</b> · 三年几乎原地，正是择时的舞台</div>
+    <div class="scroll"><table class="num">
+      <thead><tr><th>策略</th><th>年化</th><th>最大回撤</th><th>夏普</th><th>卡玛</th><th>胜率</th><th>交易</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="strat">rsi_reversion<span class="tag rev">震荡</span></td><td class="g">+27.8%</td><td>−25.2%</td><td>0.85</td><td class="g">1.10</td><td>88%</td><td>8</td></tr>
+        <tr><td class="strat">supertrend<span class="tag trend">趋势</span></td><td class="g">+25.9%</td><td class="b">−47.4%</td><td>0.86</td><td>0.55</td><td>55%</td><td>11</td></tr>
+        <tr><td class="strat">ma_cross<span class="tag trend">趋势</span></td><td class="g">+18.2%</td><td class="b">−45.2%</td><td>0.59</td><td>0.40</td><td>60%</td><td>10</td></tr>
+        <tr><td class="strat">trend_stack<span class="tag trend">趋势</span></td><td class="g">+3.0%</td><td class="g">−9.5%</td><td>0.34</td><td>0.32</td><td>100%</td><td>2</td></tr>
+        <tr><td class="strat">regime_switch<span class="tag rev">组合</span></td><td class="g">+3.0%</td><td class="g">−9.5%</td><td>0.34</td><td>0.32</td><td>100%</td><td>2</td></tr>
+        <tr><td class="strat">donchian<span class="tag trend">趋势</span></td><td class="g">+2.9%</td><td class="b">−49.3%</td><td>0.27</td><td>0.06</td><td>31%</td><td>13</td></tr>
+        <tr><td class="strat">bollinger_reversion<span class="tag rev">震荡</span></td><td class="w">0.0%</td><td>0.0%</td><td>0.00</td><td>0.00</td><td>—</td><td>0</td></tr>
+        <tr><td class="strat">vwap_momentum<span class="tag">日内</span></td><td class="b">−5.5%</td><td class="b">−44.3%</td><td>0.00</td><td class="b">−0.12</td><td>51%</td><td>144</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <h2>A股 · 腾讯财经前复权日线</h2>
+
+  <div class="sym">
+    <div class="sym-head">
+      <div class="name">贵州茅台 <span>600519</span></div>
+      <div class="span">2023-03-15 → 2026-07-03 · 800 根</div>
+    </div>
+    <div class="bh">买入持有基准 年化 <b class="b">−8.3%</b> · 三年阴跌，趋势策略集体阵亡</div>
+    <div class="scroll"><table class="num">
+      <thead><tr><th>策略</th><th>年化</th><th>最大回撤</th><th>夏普</th><th>卡玛</th><th>胜率</th><th>交易</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="strat">rsi_reversion<span class="tag rev">震荡</span></td><td class="g">+10.7%</td><td class="g">−10.6%</td><td>0.91</td><td class="g">1.01</td><td>78%</td><td>9</td></tr>
+        <tr><td class="strat">bollinger_reversion<span class="tag rev">震荡</span></td><td class="g">+2.2%</td><td class="g">−4.8%</td><td>0.58</td><td>0.47</td><td>100%</td><td>3</td></tr>
+        <tr><td class="strat">regime_switch<span class="tag rev">组合</span></td><td class="g">+0.3%</td><td class="g">−2.2%</td><td>0.11</td><td>0.13</td><td>60%</td><td>5</td></tr>
+        <tr><td class="strat">trend_stack<span class="tag trend">趋势</span></td><td class="b">−1.3%</td><td class="g">−3.9%</td><td class="b">−0.77</td><td class="b">−0.32</td><td>50%</td><td>2</td></tr>
+        <tr><td class="strat">donchian<span class="tag trend">趋势</span></td><td class="b">−4.4%</td><td>−24.6%</td><td class="b">−0.25</td><td class="b">−0.18</td><td>30%</td><td>10</td></tr>
+        <tr><td class="strat">supertrend<span class="tag trend">趋势</span></td><td class="b">−5.9%</td><td>−25.7%</td><td class="b">−0.38</td><td class="b">−0.23</td><td>15%</td><td>13</td></tr>
+        <tr><td class="strat">ma_cross<span class="tag trend">趋势</span></td><td class="b">−8.2%</td><td class="b">−32.1%</td><td class="b">−0.58</td><td class="b">−0.25</td><td>33%</td><td>9</td></tr>
+        <tr><td class="strat">vwap_momentum<span class="tag">日内</span></td><td class="b">−8.3%</td><td>−26.2%</td><td class="b">−0.77</td><td class="b">−0.32</td><td>33%</td><td>81</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="sym">
+    <div class="sym-head">
+      <div class="name">平安银行 <span>000001</span></div>
+      <div class="span">2023-03-15 → 2026-07-03 · 800 根</div>
+    </div>
+    <div class="bh">买入持有基准 年化 <b class="w">−1.6%</b> · 窄幅震荡</div>
+    <div class="scroll"><table class="num">
+      <thead><tr><th>策略</th><th>年化</th><th>最大回撤</th><th>夏普</th><th>卡玛</th><th>胜率</th><th>交易</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="strat">trend_stack<span class="tag trend">趋势</span></td><td class="g">+3.9%</td><td>−10.3%</td><td>0.42</td><td class="g">0.38</td><td>33%</td><td>6</td></tr>
+        <tr><td class="strat">bollinger_reversion<span class="tag rev">震荡</span></td><td class="g">+1.0%</td><td class="g">−3.3%</td><td>0.38</td><td>0.31</td><td>67%</td><td>3</td></tr>
+        <tr><td class="strat">regime_switch<span class="tag rev">组合</span></td><td class="g">+2.1%</td><td>−10.3%</td><td>0.25</td><td>0.20</td><td>33%</td><td>9</td></tr>
+        <tr><td class="strat">rsi_reversion<span class="tag rev">震荡</span></td><td class="g">+2.3%</td><td>−18.9%</td><td>0.30</td><td>0.12</td><td>67%</td><td>6</td></tr>
+        <tr><td class="strat">vwap_momentum<span class="tag">日内</span></td><td class="b">−0.7%</td><td>−18.2%</td><td>0.00</td><td class="b">−0.04</td><td>44%</td><td>101</td></tr>
+        <tr><td class="strat">donchian<span class="tag trend">趋势</span></td><td class="b">−2.8%</td><td>−19.9%</td><td class="b">−0.09</td><td class="b">−0.14</td><td>38%</td><td>13</td></tr>
+        <tr><td class="strat">supertrend<span class="tag trend">趋势</span></td><td class="b">−6.1%</td><td class="b">−34.2%</td><td class="b">−0.37</td><td class="b">−0.18</td><td>45%</td><td>11</td></tr>
+        <tr><td class="strat">ma_cross<span class="tag trend">趋势</span></td><td class="b">−6.0%</td><td class="b">−30.3%</td><td class="b">−0.27</td><td class="b">−0.20</td><td>20%</td><td>10</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="sym">
+    <div class="sym-head">
+      <div class="name">宁德时代 <span>300750</span></div>
+      <div class="span">2023-03-15 → 2026-07-03 · 800 根</div>
+    </div>
+    <div class="bh">买入持有基准 年化 <b class="g">+23.3%</b> · 有大趋势，双均线吃到了</div>
+    <div class="scroll"><table class="num">
+      <thead><tr><th>策略</th><th>年化</th><th>最大回撤</th><th>夏普</th><th>卡玛</th><th>胜率</th><th>交易</th></tr></thead>
+      <tbody>
+        <tr class="best"><td class="strat">ma_cross<span class="tag trend">趋势</span></td><td class="g">+21.9%</td><td class="b">−35.2%</td><td>0.76</td><td class="g">0.62</td><td>57%</td><td>7</td></tr>
+        <tr><td class="strat">donchian<span class="tag trend">趋势</span></td><td class="g">+10.9%</td><td>−30.1%</td><td>0.49</td><td>0.36</td><td>38%</td><td>13</td></tr>
+        <tr><td class="strat">bollinger_reversion<span class="tag rev">震荡</span></td><td class="g">+4.3%</td><td>−16.1%</td><td>0.46</td><td>0.27</td><td>67%</td><td>3</td></tr>
+        <tr><td class="strat">rsi_reversion<span class="tag rev">震荡</span></td><td class="g">+4.4%</td><td class="b">−27.8%</td><td>0.36</td><td>0.16</td><td>67%</td><td>6</td></tr>
+        <tr><td class="strat">trend_stack<span class="tag trend">趋势</span></td><td class="b">−0.3%</td><td class="b">−31.9%</td><td>0.09</td><td class="b">−0.01</td><td>27%</td><td>11</td></tr>
+        <tr><td class="strat">vwap_momentum<span class="tag">日内</span></td><td class="b">−1.9%</td><td class="b">−34.0%</td><td>0.03</td><td class="b">−0.06</td><td>42%</td><td>117</td></tr>
+        <tr><td class="strat">regime_switch<span class="tag rev">组合</span></td><td class="b">−5.4%</td><td class="b">−43.3%</td><td class="b">−0.13</td><td class="b">−0.12</td><td>36%</td><td>14</td></tr>
+        <tr><td class="strat">supertrend<span class="tag trend">趋势</span></td><td class="b">−7.5%</td><td class="b">−34.6%</td><td class="b">−0.17</td><td class="b">−0.22</td><td>39%</td><td>18</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <h2>样本外验证 · 戳破回测幻觉</h2>
+  <p class="lede" style="font-size:15px;margin-bottom:6px;">
+    把冠军策略拿去做 walk-forward：只用历史前段调参，在<b>没见过的后段</b>打分。
+    真金还是镀金，一测便知。</p>
+  <div class="wf">
+    <div class="wfcard">
+      <h4>rsi_reversion @ ETH（满量程卡玛 1.10）</h4>
+      <div class="wfrow"><span class="k">样本内(IS) 均值卡玛</span><span class="v g">36.42</span></div>
+      <div class="wfrow"><span class="k">样本外(OOS) 均值卡玛</span><span class="v w">0.82</span></div>
+      <div class="wfrow"><span class="k">OOS 为负的折数</span><span class="v">2 / 4</span></div>
+      <div class="verdict">⚠️ 样本外远低于样本内 → 明显过拟合，别照搬参数上实盘</div>
+    </div>
+    <div class="wfcard">
+      <h4>rsi_reversion @ 茅台（满量程卡玛 1.01）</h4>
+      <div class="wfrow"><span class="k">样本内(IS) 均值卡玛</span><span class="v g">15.78</span></div>
+      <div class="wfrow"><span class="k">样本外(OOS) 均值卡玛</span><span class="v w">7.46</span></div>
+      <div class="wfrow"><span class="k">OOS 为负的折数</span><span class="v">2 / 4</span></div>
+      <div class="verdict">⚠️ 样本外虽仍为正，但波动极大，稳健性存疑</div>
+    </div>
+  </div>
+
+  <h2>那，接下来该怎么走</h2>
+  <div class="callout">
+    <p><b>1. 别再找"最强策略"，去找"策略—行情"的匹配。</b>
+       真正能落地的做法：用 <code>regime_switch</code> 这类自适应框架，让系统按市场状态自动切换，
+       而不是赌某一个策略永远灵。</p>
+    <p><b>2. 任何参数上实盘前，先过 <code>run_optimize.py</code> 样本外这一关。</b>
+       样本外崩了就是幻觉，再好看也不碰。这一条能帮你避开 90% 的亏损陷阱。</p>
+    <p><b>3. 先在 OKX 模拟盘上把选定的组合跑几周，再上小额实盘。</b>
+       这份报告证明系统是<b>诚实的</b>——它不骗你，剩下的是纪律和耐心。</p>
+  </div>
+
+  <footer>
+    数据来源：OKX 现货 API、腾讯财经历史行情。回测均含万5手续费 + 万5滑点 + 防未来函数（今日信号次日成交）。
+    过往表现不代表未来收益，本报告为研究工具输出，非投资建议。量化交易有本金全损风险。
+  </footer>
+</div>
+
+<script>
+  // 主题切换即时响应（跟随 host 打在 :root 上的 data-theme）
+  (function () {
+    const root = document.documentElement;
+    const obs = new MutationObserver(() => {});
+    obs.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  })();
+</script>

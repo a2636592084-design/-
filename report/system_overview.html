@@ -1,0 +1,185 @@
+<title>qbot 系统全貌 + 日常手册</title>
+<style>
+  :root{
+    --ground:#f5f3ee; --panel:#ffffff; --panel2:#edeae3; --ink:#1c2230; --ink2:#4d566a;
+    --faint:#8a92a6; --hair:#e2ddd2; --accent:#3f6fb0; --accent2:#4f83c8;
+    --good:#2f8f5b; --good-bg:rgba(47,143,91,.10); --warn:#b47818; --warn-bg:rgba(180,120,24,.10);
+    --bad:#cc4f45; --bad-bg:rgba(204,79,69,.10); --term:#111a2b; --term-ink:#cfe0f5;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --ground:#0d1017; --panel:#151a24; --panel2:#1b212e; --ink:#e7ecf5; --ink2:#aab3c6;
+    --faint:#727c92; --hair:#28303f; --accent:#6aa9e0; --accent2:#7fb8ee;
+    --good:#4cb98a; --good-bg:rgba(76,185,138,.13); --warn:#d6a545; --warn-bg:rgba(214,165,69,.13);
+    --bad:#e0685e; --bad-bg:rgba(224,104,94,.13); --term:#0a1120; --term-ink:#cfe0f5; }
+  }
+  :root[data-theme="light"]{ --ground:#f5f3ee; --panel:#ffffff; --panel2:#edeae3; --ink:#1c2230;
+    --ink2:#4d566a; --faint:#8a92a6; --hair:#e2ddd2; --accent:#3f6fb0; --accent2:#4f83c8;
+    --good:#2f8f5b; --good-bg:rgba(47,143,91,.10); --warn:#b47818; --warn-bg:rgba(180,120,24,.10);
+    --bad:#cc4f45; --bad-bg:rgba(204,79,69,.10); --term:#111a2b; --term-ink:#cfe0f5; }
+  :root[data-theme="dark"]{ --ground:#0d1017; --panel:#151a24; --panel2:#1b212e; --ink:#e7ecf5;
+    --ink2:#aab3c6; --faint:#727c92; --hair:#28303f; --accent:#6aa9e0; --accent2:#7fb8ee;
+    --good:#4cb98a; --good-bg:rgba(76,185,138,.13); --warn:#d6a545; --warn-bg:rgba(214,165,69,.13);
+    --bad:#e0685e; --bad-bg:rgba(224,104,94,.13); --term:#0a1120; --term-ink:#cfe0f5; }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--ground); color:var(--ink); line-height:1.65;
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",-apple-system,Segoe UI,sans-serif;
+    font-size:15px; -webkit-font-smoothing:antialiased; }
+  .wrap{ max-width:900px; margin:0 auto; padding:0 20px 80px; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  header{ padding:52px 0 26px; border-bottom:2px solid var(--ink); }
+  .kick{ color:var(--accent); font-weight:700; font-size:12px; letter-spacing:.22em; margin:0 0 12px; }
+  h1{ font-size:clamp(27px,5vw,38px); margin:0 0 14px; font-weight:800; letter-spacing:-.01em; text-wrap:balance; }
+  .lede{ color:var(--ink2); max-width:60ch; margin:0; font-size:16px; }
+  .stat-row{ display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
+  .stat{ background:var(--panel); border:1px solid var(--hair); border-radius:10px;
+    padding:10px 16px; }
+  .stat b{ font-size:20px; font-variant-numeric:tabular-nums; color:var(--accent); }
+  .stat span{ color:var(--faint); font-size:12.5px; display:block; }
+
+  h2{ font-size:13px; letter-spacing:.15em; text-transform:uppercase; color:var(--faint);
+    font-weight:700; margin:48px 0 16px; padding-bottom:8px; border-bottom:1px solid var(--hair); }
+
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; }
+  .mod{ background:var(--panel); border:1px solid var(--hair); border-radius:12px; padding:16px 18px; }
+  .mod .ico{ font-size:20px; }
+  .mod h3{ margin:6px 0 4px; font-size:15px; font-weight:700; }
+  .mod p{ margin:0; font-size:13px; color:var(--ink2); }
+  .mod .cmd{ margin-top:8px; font-family:ui-monospace,Consolas,monospace; font-size:11.5px;
+    color:var(--accent); word-break:break-all; }
+
+  ol.play{ counter-reset:step; list-style:none; padding:0; margin:0; display:grid; gap:12px; }
+  ol.play li{ counter-increment:step; background:var(--panel); border:1px solid var(--hair);
+    border-radius:12px; padding:16px 18px 16px 56px; position:relative; }
+  ol.play li::before{ content:counter(step); position:absolute; left:16px; top:16px;
+    width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff;
+    font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  ol.play h3{ margin:0 0 4px; font-size:15px; }
+  ol.play p{ margin:0; font-size:13.5px; color:var(--ink2); }
+  ol.play code{ background:var(--panel2); padding:1px 7px; border-radius:5px;
+    font-family:ui-monospace,Consolas,monospace; font-size:12.5px; }
+
+  .scroll{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; min-width:520px; }
+  th,td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th{ font-size:11.5px; color:var(--faint); letter-spacing:.04em; text-transform:uppercase; }
+  td.tab{ font-weight:700; white-space:nowrap; }
+  .pill{ display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px; font-weight:600; }
+  .pill.safe{ background:var(--good-bg); color:var(--good); }
+  .pill.warn{ background:var(--warn-bg); color:var(--warn); }
+
+  .rule{ display:flex; gap:14px; padding:14px 0; border-bottom:1px solid var(--hair); }
+  .rule:last-child{ border-bottom:none; }
+  .rule .n{ font-size:22px; }
+  .rule b{ color:var(--ink); }
+  .rule p{ margin:2px 0 0; color:var(--ink2); font-size:14px; }
+
+  .callout{ background:var(--bad-bg); border:1px solid var(--bad); border-radius:12px;
+    padding:16px 20px; margin-top:16px; }
+  .callout b{ color:var(--bad); }
+  .callout p{ margin:6px 0 0; color:var(--ink2); font-size:14px; }
+
+  footer{ margin-top:44px; padding-top:20px; border-top:1px solid var(--hair);
+    font-size:12.5px; color:var(--faint); }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="kick">QBOT · 系统全貌与日常手册</p>
+    <h1>你的量化系统，现在长这样</h1>
+    <p class="lede">从零搭到现在，这是一套能全市场扫描、多策略回测、自动执行（模拟）、
+      信号推送、可视化监控的完整系统。下面一页看懂：你拥有什么、平时怎么用、以及三条保命铁律。</p>
+    <div class="stat-row">
+      <div class="stat"><b>9</b><span>交易策略</span></div>
+      <div class="stat"><b>10</b><span>技术指标</span></div>
+      <div class="stat"><b>5</b><span>面板页签</span></div>
+      <div class="stat"><b>46</b><span>自动化测试</span></div>
+      <div class="stat"><b>2</b><span>市场(加密/A股)</span></div>
+    </div>
+  </header>
+
+  <h2>一、你拥有什么（系统模块）</h2>
+  <div class="grid">
+    <div class="mod"><div class="ico">📊</div><h3>回测引擎</h3>
+      <p>含手续费、滑点、防未来函数。年化/回撤/夏普/卡玛/胜率全给。</p>
+      <div class="cmd">run_backtest.py</div></div>
+    <div class="mod"><div class="ico">🧭</div><h3>9个策略 + 10指标</h3>
+      <p>趋势/均值回归/日内/自适应组合/多指标共振(confluence)。</p>
+      <div class="cmd">strategies/ · indicators.py</div></div>
+    <div class="mod"><div class="ico">🔬</div><h3>样本外优化器</h3>
+      <p>前段调参、后段检验，戳破"回测好看实盘打脸"的幻觉。</p>
+      <div class="cmd">run_optimize.py</div></div>
+    <div class="mod"><div class="ico">🛡️</div><h3>风控</h3>
+      <p>单标的上限、ATR止损、组合回撤熔断、按1%风险定仓。</p>
+      <div class="cmd">risk/manager.py</div></div>
+    <div class="mod"><div class="ico">🌐</div><h3>全市场组合引擎</h3>
+      <p>扫描全部标的→按共振分择优→只持有有限个最好的仓位。</p>
+      <div class="cmd">run_portfolio.py</div></div>
+    <div class="mod"><div class="ico">🖥️</div><h3>可视化面板</h3>
+      <p>5个页签：回测/扫描/模拟/实盘A股/实盘加密，实时监控。</p>
+      <div class="cmd">run_dashboard.py → 127.0.0.1:8000</div></div>
+    <div class="mod"><div class="ico">🔔</div><h3>信号通知</h3>
+      <p>浏览器弹窗+声音、微信/TG/邮件。只在信号变化时推一次。</p>
+      <div class="cmd">run_watch.py</div></div>
+    <div class="mod"><div class="ico">📡</div><h3>真实数据</h3>
+      <p>OKX(加密,含清洗) + 腾讯(A股)，代理自动读 .env，脏K线自动剔除。</p>
+      <div class="cmd">data/ · universe.py</div></div>
+    <div class="mod"><div class="ico">🚀</div><h3>一键部署</h3>
+      <p>本地双击启动 / 云端 Docker 一条命令 / systemd 开机自启。</p>
+      <div class="cmd">deploy/ · docker-compose.yml</div></div>
+  </div>
+
+  <h2>二、日常怎么用（每天照做）</h2>
+  <ol class="play">
+    <li><h3>确认加速器开着</h3>
+      <p>Clash 保持运行（你已设开机自启）。加密数据要靠它连 OKX；A股不需要。</p></li>
+    <li><h3>启动系统</h3>
+      <p>双击 <code>deploy\start_all.bat</code>，弹出 4 个窗口（面板 + 三个交易引擎）。
+        这些窗口别关，它们在替你干活。关机后想再跑，重复这一步即可。</p></li>
+    <li><h3>打开面板看盘</h3>
+      <p>浏览器输入 <code>127.0.0.1:8000</code>。切到三个交易页看：当前持仓(浮盈)、
+        全市场扫描Top信号(共振分)、近期成交、净值。每30秒自动刷新。</p></li>
+    <li><h3>收到通知就看一眼</h3>
+      <p>信号变化时面板弹窗+响声（配了微信则手机也收到）。它只提醒变化，不刷屏。</p></li>
+    <li><h3>A股：照信号手动下单</h3>
+      <p>「量化实盘A股」页给的是<b>建议持有清单</b>（A股无散户自动API）。你在券商软件里手动买卖。</p></li>
+    <li><h3>加密：先模拟，跑稳再谈真钱</h3>
+      <p>「量化实盘加密」默认走 OKX 模拟盘（<code>OKX_DEMO=1</code>，不花钱）。
+        观察一两周稳定后，再考虑小额真钱。</p></li>
+  </ol>
+
+  <h2>三、面板 5 个页签速查</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>页签</th><th>干什么</th><th>状态</th></tr></thead>
+    <tbody>
+      <tr><td class="tab">回测</td><td>选标的+策略，看历史资金曲线/回撤/绩效。研究用。</td><td><span class="pill safe">安全</span></td></tr>
+      <tr><td class="tab">实时信号扫描</td><td>填一篮子标的，看当前该买/该卖+共振分。</td><td><span class="pill safe">安全</span></td></tr>
+      <tr><td class="tab">模拟量化交易</td><td>虚拟资金全市场自动交易，练手看效果。</td><td><span class="pill safe">虚拟钱</span></td></tr>
+      <tr><td class="tab">量化实盘A股</td><td>全A股扫描出信号，你手动下单。</td><td><span class="pill warn">手动</span></td></tr>
+      <tr><td class="tab">量化实盘加密</td><td>OKX 现货+合约，默认模拟盘。</td><td><span class="pill warn">默认模拟</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>四、三条保命铁律</h2>
+  <div class="rule"><div class="n">🧊</div><div>
+    <b>先模拟，再小额，永不 all in。</b>
+    <p>系统默认全程模拟盘就是这个道理。真钱前必须先在模拟盘跑稳几周。</p></div></div>
+  <div class="rule"><div class="n">🔬</div><div>
+    <b>回测好看 ≠ 能赚钱。上实盘前先过 <code style="font-size:12px">run_optimize.py</code> 样本外这关。</b>
+    <p>样本外崩了就是幻觉，再漂亮也别碰。这一条帮你避开 90% 的亏损陷阱。</p></div></div>
+  <div class="rule"><div class="n">🛡️</div><div>
+    <b>风控优先于收益，密钥只给"交易"不给"提现"。</b>
+    <p>先想怎么不亏再想怎么赚。API Key 永远别勾提现；密钥只放本地 .env，绝不外发。</p></div></div>
+
+  <div class="callout">
+    <b>🔴 现在最该做的一件事</b>
+    <p>你之前在聊天里发过 OKX 密钥 = 已泄露。请<b>立刻去 OKX 删除旧 Key、重新生成</b>，
+      新密钥只填本地 <code>.env</code>，保持 <code>OKX_DEMO=1</code>。做完这个再启动加密实盘页。</p>
+  </div>
+
+  <footer>
+    qbot 量化系统总览 · 全程默认模拟盘 · 回测含手续费/滑点/防未来函数 · 本页非投资建议。
+    量化交易有本金全损风险，过往表现不代表未来。代码在你的 GitHub PR #1。
+  </footer>
+</div>

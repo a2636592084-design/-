@@ -1,0 +1,18 @@
+[Unit]
+Description=qbot 组合引擎·A股信号（喂"量化实盘A股"页，信号+手动不下单）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+ExecStart=/opt/qbot/.venv/bin/python run_portfolio.py \
+  --mode ashare --market ashare --strategy confluence \
+  --top 80 --signals-only --poll 900 --notify
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

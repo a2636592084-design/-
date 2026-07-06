@@ -1,0 +1,18 @@
+[Unit]
+Description=qbot 组合引擎·模拟盘（喂"模拟量化交易"页）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+ExecStart=/opt/qbot/.venv/bin/python run_portfolio.py \
+  --mode paper --market crypto --strategy confluence \
+  --top 60 --max-positions 12 --poll 300 --notify
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

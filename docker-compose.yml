@@ -1,0 +1,50 @@
+# qbot 云服务器部署：一条命令起 面板 + 三个组合引擎。
+#   docker compose up -d --build
+# 四个服务共用同一镜像，各自跑不同命令；崩溃自动重启。
+# .env 提供 OKX/通知 密钥；logs 目录持久化到宿主机（面板据此读取交易页状态）。
+
+x-common: &common
+  image: qbot:latest
+  build: .
+  env_file:
+    - path: .env
+      required: false
+  volumes:
+    - ./logs:/app/logs
+  restart: unless-stopped
+
+services:
+  dashboard:
+    <<: *common
+    command: python run_dashboard.py
+    environment:
+      QBOT_HOST: 0.0.0.0
+      QBOT_PORT: "8000"
+    ports:
+      # 只映射到宿主机本地，通过 SSH 隧道访问，避免无验证面板暴露公网
+      - "127.0.0.1:8000:8000"
+
+  # 模拟量化交易页
+  portfolio-paper:
+    <<: *common
+    command: >
+      python run_portfolio.py --mode paper --market crypto
+      --strategy confluence --top 60 --max-positions 12 --poll 300 --notify
+    depends_on: [dashboard]
+
+  # 量化实盘A股页（信号+手动，不自动下单）
+  portfolio-ashare:
+    <<: *common
+    command: >
+      python run_portfolio.py --mode ashare --market ashare
+      --strategy confluence --top 80 --signals-only --poll 900 --notify
+    depends_on: [dashboard]
+
+  # 量化实盘加密页（OKX，.env 的 OKX_DEMO=1 为模拟盘/无真钱；设 0 才动真钱）
+  portfolio-crypto:
+    <<: *common
+    command: >
+      python run_portfolio.py --mode crypto --market crypto --broker okx
+      --trade-type swap --leverage 3 --allow-short
+      --strategy confluence --top 60 --max-positions 12 --poll 300 --notify
+    depends_on: [dashboard]

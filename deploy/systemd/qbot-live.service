@@ -1,0 +1,20 @@
+[Unit]
+Description=qbot 模拟盘交易引擎（paper，默认不碰真钱）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbot
+WorkingDirectory=/opt/qbot
+EnvironmentFile=/opt/qbot/.env
+# ⚠️ 默认 --broker paper 模拟盘。要接 OKX 模拟盘改成 --broker okx（.env 里 OKX_DEMO=1）。
+#    切真钱需 OKX_DEMO=0 且加 --i-understand-the-risk，请务必先跑稳模拟盘。
+ExecStart=/opt/qbot/.venv/bin/python run_live.py \
+  --broker paper --market crypto --symbol BTC/USDT \
+  --strategy regime_switch --poll 300 --notify
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
