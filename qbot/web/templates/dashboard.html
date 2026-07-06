@@ -510,8 +510,8 @@
           <div class="ctl-risk-t">🛡️ 风控</div>
           <div class="ctl-grid">
             <label>止损方式<select id="f_slmode_${mode}" onchange="toggleSlMode('${mode}')">
-              <option value="atr" selected>ATR自适应(推荐)</option>
-              <option value="pct">固定百分比</option></select></label>
+              <option value="pct" selected>固定百分比(推荐·回测更稳)</option>
+              <option value="atr">ATR自适应(更敏感·成交翻倍易亏)</option></select></label>
             <label id="f_atrwrap_${mode}">ATR倍数<input type="number" id="f_atr_${mode}" value="2.5" step="0.5"
               title="止损=成本∓倍数×ATR，波动大自动放宽止损、并按波动把仓位压小"></label>
             <label id="f_slwrap_${mode}" style="display:none">止损%<input type="number" id="f_sl_${mode}" value="8" step="0.5"></label>
@@ -661,6 +661,7 @@
       if(_forceForm[mode] || (!webRunning && !hasData)){
         if(_formShown[mode]) return;             // 表单已在显示，别重绘（免得清空你填的值）
         box.innerHTML = controlPanel(mode, status.error, _forceForm[mode]);
+        toggleLev(mode); toggleSlMode(mode);     // 初次渲染即按当前默认(固定%)显示对应字段
         _formShown[mode] = true;
         return;
       }
