@@ -555,6 +555,7 @@ class PortfolioEngine:
             "daily_halted": self.risk.daily_halted,
             "daily_loss_pct": self.risk.daily_loss_pct(self.state.equity),
             "max_daily_loss_pct": round(self.risk.cfg.max_daily_loss * 100, 1),
+            "max_drawdown_pct": round(self.risk.cfg.max_portfolio_drawdown * 100, 1),
             "universe_size": len(self.universe), "scanned": len(scan),
             "positions": positions, "scan": top_scan,
             "recent_trades": list(reversed(self.state.recent_trades[-20:])),

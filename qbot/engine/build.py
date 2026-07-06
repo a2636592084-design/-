@@ -20,6 +20,7 @@ DEFAULTS = {
     "stop_loss": 0.08, "take_profit": 0.0, "breakeven": 0.05, "trailing_stop": 0.06,
     "atr_stop_mult": 2.5, "cooldown": 3, "exchange_stops": True, "quality": True,
     "market_gate": False, "gate_adx": 20.0, "gate_ema": 200,
+    "max_drawdown": 0.20, "max_daily_loss": 0.10,   # 熔断线(0=关闭该熔断)
     "notify": False, "i_understand_risk": False, "capital": 100_000.0,
 }
 
@@ -33,7 +34,10 @@ def build_engine(cfg: dict) -> tuple[PortfolioEngine, dict]:
     strat = (REGISTRY[c["strategy"]](allow_short=True)
              if (c["allow_short"] and c["strategy"] == "confluence")
              else REGISTRY[c["strategy"]]())
-    risk = RiskManager(RiskConfig())
+    risk = RiskManager(RiskConfig(
+        max_portfolio_drawdown=float(c["max_drawdown"]),
+        max_daily_loss=float(c["max_daily_loss"]),
+    ))
 
     market = c["market"]
     execute = market != "ashare"          # A股只出信号、永不自动下单

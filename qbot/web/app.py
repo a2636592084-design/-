@@ -326,6 +326,8 @@ class EngineCfg(BaseModel):
     market_gate: bool = False
     gate_adx: float = 20.0
     gate_ema: int = 200
+    max_drawdown: float = 0.20
+    max_daily_loss: float = 0.10
     notify: bool = False
     i_understand_risk: bool = False
     capital: float = 100_000.0
@@ -385,7 +387,9 @@ def api_portfolio_backtest(cfg: EngineCfg) -> JSONResponse:
             trailing_stop=float(c["trailing_stop"]), atr_stop_mult=float(c["atr_stop_mult"]),
             cooldown=int(c["cooldown"]),
             market_gate=bool(c.get("market_gate", False)),
-            gate_adx=float(c.get("gate_adx", 20.0)), gate_ema=int(c.get("gate_ema", 200)))
+            gate_adx=float(c.get("gate_adx", 20.0)), gate_ema=int(c.get("gate_ema", 200)),
+            max_drawdown=float(c.get("max_drawdown", 0.20)),
+            max_daily_loss=float(c.get("max_daily_loss", 0.10)))
         res["capped_top"] = min(int(c["top"]), 30)
         return JSONResponse(res)
     except Exception as e:  # noqa: BLE001

@@ -47,9 +47,11 @@ class RiskManager:
             self._daily_halted = False
 
         self._peak_equity = max(self._peak_equity, equity)
-        if self._peak_equity > 0 and equity / self._peak_equity - 1.0 <= -self.cfg.max_portfolio_drawdown:
+        # 阈值为 0 = 关闭该熔断（用户可在面板显式关掉，风险自负）
+        if self.cfg.max_portfolio_drawdown > 0 and self._peak_equity > 0 and \
+                equity / self._peak_equity - 1.0 <= -self.cfg.max_portfolio_drawdown:
             self._halted = True
-        if self._day_start_equity > 0 and \
+        if self.cfg.max_daily_loss > 0 and self._day_start_equity > 0 and \
                 equity / self._day_start_equity - 1.0 <= -self.cfg.max_daily_loss:
             self._daily_halted = True
 

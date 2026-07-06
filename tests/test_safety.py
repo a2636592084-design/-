@@ -46,6 +46,20 @@ def test_daily_and_portfolio_halt_independent():
     assert risk.daily_halted and not risk.halted
 
 
+def test_breakers_configurable_and_off():
+    # 阈值可调：设 30% → -25% 不触发、-35% 才触发
+    r = RiskManager(RiskConfig(max_portfolio_drawdown=0.30))
+    r.update_equity(100.0); r.update_equity(75.0)
+    assert not r.halted
+    r.update_equity(65.0)
+    assert r.halted
+    # 0 = 关闭：哪怕 -50% 也不熔断（用户显式关掉、风险自负）
+    off = RiskManager(RiskConfig(max_portfolio_drawdown=0.0, max_daily_loss=0.0))
+    off.update_equity(100.0, today="2026-01-01")
+    off.update_equity(50.0, today="2026-01-01")
+    assert not off.halted and not off.daily_halted
+
+
 # ------------------------------------------------ 交易日志
 def test_journal_realized_pnl_long_and_short(tmpdir_journal):
     jr = TradeJournal("u1")

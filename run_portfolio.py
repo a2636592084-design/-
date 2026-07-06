@@ -59,6 +59,10 @@ def main() -> None:
                    help="大盘方向闸：只在BTC自己有趋势时才开新仓(震荡休息、多头只做多、空头只做空)")
     p.add_argument("--gate-adx", type=float, default=20.0,
                    help="大盘闸的ADX门槛(BTC ADX<此值=震荡→暂停开新仓，默认20)")
+    p.add_argument("--max-drawdown", type=float, default=0.20,
+                   help="组合回撤熔断线：整体回撤超此比例→清仓停开(默认0.20；0=关闭，风险自负)")
+    p.add_argument("--max-daily-loss", type=float, default=0.10,
+                   help="单日亏损熔断线：当日亏超此比例→当天停开新仓(默认0.10；0=关闭)")
     p.add_argument("--capital", type=float, default=100_000.0)
     p.add_argument("--timeframe", default="1d")
     p.add_argument("--poll", type=int, default=300)
@@ -75,7 +79,8 @@ def main() -> None:
         strat = REGISTRY[args.strategy](allow_short=True)
     else:
         strat = REGISTRY[args.strategy]()
-    risk = RiskManager(RiskConfig())
+    risk = RiskManager(RiskConfig(
+        max_portfolio_drawdown=args.max_drawdown, max_daily_loss=args.max_daily_loss))
 
     # 标的类型默认随 trade-type：合约取永续、现货取现货
     types = tuple(args.types) if args.types else \

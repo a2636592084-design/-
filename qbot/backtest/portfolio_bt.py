@@ -126,9 +126,9 @@ def backtest_portfolio(
         if day_start_eq is None:
             day_start_eq = equity
         peak_eq = max(peak_eq, equity)
-        if peak_eq > 0 and equity / peak_eq - 1 <= -max_drawdown:
+        if max_drawdown > 0 and peak_eq > 0 and equity / peak_eq - 1 <= -max_drawdown:
             halted = True
-        if day_start_eq > 0 and equity / day_start_eq - 1 <= -max_daily_loss:
+        if max_daily_loss > 0 and day_start_eq > 0 and equity / day_start_eq - 1 <= -max_daily_loss:
             daily_halted = True
         eq_ts.append(str(t)); eq_val.append(equity)
 

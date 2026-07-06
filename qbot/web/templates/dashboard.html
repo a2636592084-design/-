@@ -523,6 +523,10 @@
               title="固定%模式下：止损跟随峰值、留这么多回撤空间"></label>
             <label>被止损冷却(周期)<input type="number" id="f_cd_${mode}" value="3"
               title="某币被止损后，隔几个扫描周期才允许再进，防止震荡里反复挨打"></label>
+            <label style="color:var(--gold)">组合回撤熔断%<input type="number" id="f_mdd_${mode}" value="20" step="1" min="0"
+              title="总回撤到这个%就【全部清仓+停止开新仓】的保命总闸。0=关闭(强烈不建议)。想扛更大回撤就调大，如30/40"></label>
+            <label style="color:var(--gold)">单日亏损熔断%<input type="number" id="f_mdl_${mode}" value="10" step="1" min="0"
+              title="当天亏到这个%就【今日停开新仓】(已有仓保留、次日复位)。0=关闭"></label>
           </div>
           <label class="ctl-chk" style="margin-top:10px;color:var(--up)">
             <input type="checkbox" id="f_exstop_${mode}" checked>
@@ -583,6 +587,8 @@
         exchange_stops: g('f_exstop',true)!==false,
         quality: g('f_quality',true)!==false,
         market_gate: !!g('f_gate',false),
+        max_drawdown: (+g('f_mdd',20))/100,
+        max_daily_loss: (+g('f_mdl',10))/100,
         i_understand_risk: !!g('f_ack',false),
       };
     }
